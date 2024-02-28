@@ -1,0 +1,9 @@
+defaults:
+ - datasets: prevention
+ - models: resnet
+ - trainer: train
+ - eval: eval
+
+#string params
+mode: "train"
+dev: "cuda:0"
