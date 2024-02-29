@@ -1,2 +1,3 @@
-_target_:
-  intention_prediction.models.load_resnet
+slowFast:
+  _target_:
+     intention_prediction.models.load_resnet

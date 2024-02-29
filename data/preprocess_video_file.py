@@ -33,7 +33,7 @@ def _preprocess_prevention(args):
         frame = cv2.resize(frame , (W , H))
         cap_train.write(frame)
 
-    cap_val = VideoWriter(video_train_dstp , cv2.VideoWriter_fourcc(*"MPEG") , fps , (W , H ))
+    cap_val = VideoWriter(video_val_dstp , cv2.VideoWriter_fourcc(*"MPEG") , fps , (W , H ))
 
     for _ in tqdm(range(1 , int(length*args["val"]))):
         ret, frame = cap.read()
@@ -45,7 +45,7 @@ def _preprocess_prevention(args):
         frame = cv2.resize(frame , (W , H))
         cap_val.write(frame)
 
-    cap_test = VideoWriter(video_train_dstp , cv2.VideoWriter_fourcc(*"MPEG") , fps , (W , H ))
+    cap_test = VideoWriter(video_test_dstp , cv2.VideoWriter_fourcc(*"MPEG") , fps , (W , H ))
 
     for _ in tqdm(range(1 , int(length*args["test"]))):
         ret, frame = cap.read()

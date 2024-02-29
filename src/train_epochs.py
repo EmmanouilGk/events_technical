@@ -2,6 +2,7 @@ import contextlib
 import numpy as np
 import torch
 from torch.utils.tensorboard import SummaryWriter
+from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 from sklearn.metrics import precision_score,recall_score
@@ -37,13 +38,14 @@ class logging_utils():
         self._current_epoch = value
 
 
-def train_batch(*args,**kwargs):
+def train(*args,**kwargs):
     max_epochs = kwargs["epochs"]
-    loader = kwargs["loader"]
-    max_batches=len(loader)
+    loader = kwargs["dataloader"]
+    # max_batches=len(loader)
     writer = SummaryWriter(log_dir= "/home/iccs/Desktop/isense/events/intention_prediction/logs" )
     scheduler = kwargs["scheduler"]
-
+    criterion = torch.nn.CrossEntropyLoss()
+    kwargs.update({"criterion":criterion})
 
     for epoch in  range(max_epochs):
 
@@ -63,7 +65,7 @@ def train_batch(*args,**kwargs):
 #equiv to logging_utils().tb_writer(train_one_epoch(*args,**kwargs))
 # @logging_utils().tb_writer():
 def train_one_epoch(*args , **kwargs):
-        data_loader = kwargs["loader"]
+        data_loader = kwargs["dataloader"]
         dev=kwargs["dev"]
         model = kwargs["model"]
         criterion = kwargs["criterion"]
@@ -72,7 +74,7 @@ def train_one_epoch(*args , **kwargs):
         loss_epoch = []
         for batch_idx , (frames , maneuver_type) in (pbar:=tqdm(enumerate(data_loader))): 
 
-            pbar.set_description_str("Batch: {}/{}".format(batch_idx))
+            pbar.set_description_str("Batch: {}".format(batch_idx))
             
             optimizer.zero_grad()
 

@@ -1,0 +1,26 @@
+conf:
+  datasets:
+    prevention:
+      _target_: /data/prevention_data_iter.read_frame_from_iter
+      path_to_video: /home/iccs/Desktop/isense/events/intention_prediction/video.avi
+      path_to_label: /home/iccs/Desktop/isense/events/intention_prediction/detection_camera1/lane_changes.txt
+      dataset_root: /home/iccs/Desktop/isense/events/intention_prediction/
+      dataset_name: prevention
+      dataset_size: null
+      splits:
+      - train: 0.8
+      - val: 0.1
+      - test: 0.1
+  models:
+    slowFast:
+      _target_: intention_prediction.models.load_resnet
+  trainer:
+    _target_: torch.optim.Adam
+    _args_:
+      -lr: 0.0003
+  eval: {}
+  mode: train
+  dev: cuda:0
+  hydra:
+    searchpath:
+    - file: ///home/iccs/Desktop/isense/events/intention_prediction/data

@@ -3,4 +3,6 @@ _target_: torch.optim.Adam
 _args_:
   -lr: 0.0003
 
+epochs: 1
+
 
