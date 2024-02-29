@@ -86,6 +86,7 @@ class read_frame_from_iter(torch.utils.data.IterableDataset):
         """
         get current frame infor and update iterators
         """
+        
         return next(self._current_timestep) , next(self._next_maneuver_begin) , next(self._next_maneuver_end) , next(self._maneuver_type)
     
     def __next__(self):
@@ -110,8 +111,8 @@ class read_frame_from_iter(torch.utils.data.IterableDataset):
                     raise ValueError()
 
             try:
-                frame_tensor = (self._get_video_tensor(delta = _next_maneuver_end - _next_maneuver_begin))
-                assert len(frame_tensor) == 5,"expected 5 frames before prediction, got {}".format(len(frame_tensor))
+                frame_tensor = (self._get_video_tensor(delta := _next_maneuver_end - _next_maneuver_begin))
+                assert len(frame_tensor) == 5+delta,"expected {} frames before prediction, got {}".format(5+delta,len(frame_tensor))
                 frame_tensor = torch.stack([self.transform(x) for x in frame_tensor])
                 label_tensor = torch.FloatTensor(_manuever_type)
             except StopIteration as e:
