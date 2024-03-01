@@ -3,7 +3,10 @@ import argparse
 import cv2
 from tqdm import tqdm
 from os.path import join
-def _preprocess_prevention(args):
+
+
+
+def _preprocess_prevention(args: argparse.ArgumentParser):
     root = "/home/iccs/Desktop/isense/events/intention_prediction"
     video_src = join(root,"processed_data","video_camera1.mp4")
 

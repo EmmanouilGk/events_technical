@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, List, Tuple
 from cv2 import VideoCapture
 import torch
 from torchvision.transforms import ToTensor
@@ -24,10 +24,12 @@ class read_frame_from_iter(torch.utils.data.IterableDataset):
 
     """
     def __init__(self , 
-                 path_to_video , 
-                 path_to_label,
-                 
-                 horizon=5,*args,**kwargs) -> None:
+                 path_to_video:str , 
+                 path_to_label:str,
+                 splits=[0.8,0.1,0.1]:List[float],
+                 horizon=5 :int,
+                 *args,
+                 **kwargs) -> None:
         """
         attributes
         path_to_lane_changes: lane_changes.txt
@@ -89,7 +91,7 @@ class read_frame_from_iter(torch.utils.data.IterableDataset):
         
         return next(self._current_timestep) , next(self._next_maneuver_begin) , next(self._next_maneuver_end) , next(self._maneuver_type)
     
-    def __next__(self):
+    def __next__(self) -> Tuple[torch.FloatTensor , torch.FloatTensor]:
             """
             iterate over the video.
             Return video frame tensor (spatiotemporal) before maneuver (window frames)
@@ -113,12 +115,16 @@ class read_frame_from_iter(torch.utils.data.IterableDataset):
             try:
                 frame_tensor = (self._get_video_tensor(delta := _next_maneuver_end - _next_maneuver_begin))
                 assert len(frame_tensor) == 5+delta,"expected {} frames before prediction, got {}".format(5+delta,len(frame_tensor))
-                frame_tensor = torch.stack([self.transform(x) for x in frame_tensor])
+                frame_tensor = torch.stack([self.transform(x) for x in frame_tensor])  #apply to tensor
                 label_tensor = torch.FloatTensor(_manuever_type)
             except StopIteration as e:
                 traceback.print_exc()
                 raise 
             
+            #switch channel - time segment dimensions ( 1,2)
+            frame_tensor = frame_tensor.permute((1,0,2,3))
+            assert   frame_tensor.size(0)==3 and frame_tensor.size(1)>0 and frame_tensor.size(2) == 600 and frame_tensor.size(3)==1920,"got {} {} {} {}".format(frame_tensor.size(0),frame_tensor.size(1),frame_tensor.size(1),frame_tensor.size(1))
+
             return frame_tensor , label_tensor
 
     def _get_video_tensor(self , delta):
