@@ -9,6 +9,7 @@ from torch.utils.data import DataLoader
 from data.prevention_data_iter import *
 from src.train_epochs import *
 from models.load_resnet import *
+from data.data_loader_utils import collate_fn_padding
 
 
 
@@ -19,15 +20,13 @@ log = logging.getLogger(__name__)
 def my_app(cfg: DictConfig):  
     logging.info("Initializing")
 
-    input(cfg)
-
     # dataset = instantiate(config = cfg.conf.datasets)  #recheck
 
     dataset = read_frame_from_iter(path_to_video= "/home/iccs/Desktop/isense/events/intention_prediction/processed_data/video_train.avi",
                                   path_to_label="/home/iccs/Desktop/isense/events/intention_prediction/processed_data/detection_camera1/lane_changes.txt")
 
     # dataloader = instantiate(config = cfg.datasets.prevention_loader)  #recheck
-    dataloader = DataLoader(dataset , batch_size=3)
+    dataloader = DataLoader(dataset , batch_size=1 , collate_fn= collate_fn_padding)
     
     # model = instantiate(cfg.conf.models)   #recheck 
     model = torch.hub.load('facebookresearch/pytorchvideo', 'slow_r50', pretrained=True)

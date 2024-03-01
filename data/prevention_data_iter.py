@@ -1,7 +1,7 @@
 from typing import Any, List, Tuple
 from cv2 import VideoCapture
 import torch
-from torchvision.transforms import ToTensor
+from torchvision.transforms import ToTensor , Resize , Compose
 import  cv2
 import queue
 import traceback
@@ -26,8 +26,8 @@ class read_frame_from_iter(torch.utils.data.IterableDataset):
     def __init__(self , 
                  path_to_video:str , 
                  path_to_label:str,
-                 splits=[0.8,0.1,0.1]:List[float],
-                 horizon=5 :int,
+                 splits: List[float] =[0.8,0.1,0.1] ,
+                 horizon: int = 5 ,
                  *args,
                  **kwargs) -> None:
         """
@@ -39,17 +39,17 @@ class read_frame_from_iter(torch.utils.data.IterableDataset):
         super(read_frame_from_iter).__init__()
         self.path_to_video = path_to_video
         self.path_to_lane_changes = path_to_label
-          
+        self.H = 400
+        self.W = 800
         self.horizon = horizon
-        self.transform = ToTensor()
+
+
+        self.transform = Compose([ ToTensor() , Resize((self.H,self.W)) ])
 
         self._cap = VideoCapture(self.path_to_video)
         self._maneuver_type=[]
 
         self._length = int(self._cap.get(cv2.CAP_PROP_FRAME_COUNT))   #used to assign timestamp iterato
-
-        self._labels = queue.Queue()            #store the label data from prevention
-        
 
         _lines=[]
         with open(self.path_to_lane_changes , "r") as f:   #read lane_change_file
@@ -65,10 +65,8 @@ class read_frame_from_iter(torch.utils.data.IterableDataset):
         for line in _lines:
 
             _line = line[:-1]  #remove\n
-            # self._labels.put((int(x) for x in _line.rsplit(" ")))  #make list of gt lines
             _line = [int(x) for x in _line.rsplit(" ")]
-            
-            self._next_maneuver_begin.append(_line[3])   #maneuver start times
+            self._next_maneuver_begin.append(_line[3])   #maneuver start times-check and is correct 
             self._next_maneuver_end.append(_line[4])
             self._maneuver_type.append(_line[2])
 
@@ -103,7 +101,7 @@ class read_frame_from_iter(torch.utils.data.IterableDataset):
             # _maneuver_type=_current_step[3]
 
             _current_timestep , _next_maneuver_begin , _next_maneuver_end ,  _manuever_type = self._info_gen()
-
+            
             #iter over redundant video frames
             for _ in range(_current_timestep , _next_maneuver_begin - self.horizon ):
                 _ = next(self._current_timestep) #update current time
@@ -111,20 +109,24 @@ class read_frame_from_iter(torch.utils.data.IterableDataset):
                 if not ret:
                     traceback.print_exc()
                     raise ValueError()
-
             try:
                 frame_tensor = (self._get_video_tensor(delta := _next_maneuver_end - _next_maneuver_begin))
                 assert len(frame_tensor) == 5+delta,"expected {} frames before prediction, got {}".format(5+delta,len(frame_tensor))
                 frame_tensor = torch.stack([self.transform(x) for x in frame_tensor])  #apply to tensor
-                label_tensor = torch.FloatTensor(_manuever_type)
+                
+
+                label_tensor = torch.tensor(_manuever_type)
+                
             except StopIteration as e:
                 traceback.print_exc()
+
                 raise 
             
             #switch channel - time segment dimensions ( 1,2)
             frame_tensor = frame_tensor.permute((1,0,2,3))
-            assert   frame_tensor.size(0)==3 and frame_tensor.size(1)>0 and frame_tensor.size(2) == 600 and frame_tensor.size(3)==1920,"got {} {} {} {}".format(frame_tensor.size(0),frame_tensor.size(1),frame_tensor.size(1),frame_tensor.size(1))
+            assert   frame_tensor.size(0)==3 and frame_tensor.size(1)>0 and frame_tensor.size(2) == self.H and frame_tensor.size(3)==self.W,"got {} {} {} {}".format(frame_tensor.size(0),frame_tensor.size(1),frame_tensor.size(1),frame_tensor.size(1))
 
+            
             return frame_tensor , label_tensor
 
     def _get_video_tensor(self , delta):

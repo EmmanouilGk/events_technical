@@ -38,9 +38,15 @@ class logging_utils():
         self._current_epoch = value
 
 
+
 def train(*args,**kwargs):
-    max_epochs = kwargs["epochs"]
+    """
+    config batch training
+    """
+    max_epochs = kwargs["epochs"]  #max train epoch
     loader = kwargs["dataloader"]
+    # loader_train = kwargs["dataloader_train"]  #loader for train-val
+    # loader_val = kwargs["dataloader_val"]
     # max_batches=len(loader)
     writer = SummaryWriter(log_dir= "/home/iccs/Desktop/isense/events/intention_prediction/logs" )
     scheduler = kwargs["scheduler"]
@@ -62,15 +68,18 @@ def train(*args,**kwargs):
 
         scheduler.step()
 
+
 #equiv to logging_utils().tb_writer(train_one_epoch(*args,**kwargs))
 # @logging_utils().tb_writer():
 def train_one_epoch(*args , **kwargs):
+
+
         data_loader = kwargs["dataloader"]
         dev=kwargs["dev"]
         model = kwargs["model"]
         criterion = kwargs["criterion"]
         optimizer = kwargs["optimizer"]
-
+        model = model.to(dev)
         loss_epoch = []
         for batch_idx , (frames , maneuver_type) in (pbar:=tqdm(enumerate(data_loader))): 
 
@@ -82,7 +91,8 @@ def train_one_epoch(*args , **kwargs):
             maneuver_type=maneuver_type.to(dev)
 
             prediction = model(frames)
-            loss = criterion(prediction , frames)
+            
+            loss = criterion(prediction , maneuver_type)
 
             loss.backward()
 
@@ -110,9 +120,10 @@ def val_one_epoch(*args , **kwargs):
             
             frames = frames.to(dev)
             maneuver_type=maneuver_type.to(dev)
-
             prediction = model(frames)
-            loss = criterion(prediction , frames)
+            prediction =torch.nn.Softmax(prediction)
+           
+            loss = criterion(prediction , maneuver_type)
 
             #to comute eval metrics
             predictions_epoch.append(prediction)
