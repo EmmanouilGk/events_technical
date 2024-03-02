@@ -1,3 +1,4 @@
+import logging
 from typing import Any, List, Tuple
 from cv2 import VideoCapture
 import torch
@@ -108,7 +109,7 @@ class read_frame_from_iter(torch.utils.data.IterableDataset):
                 ret,_ = self._cap.read()  #move past redundant frames
                 if not ret:
                     traceback.print_exc()
-                    raise ValueError()
+                    # raise ValueError()
             try:
                 frame_tensor = (self._get_video_tensor(delta := _next_maneuver_end - _next_maneuver_begin))
                 assert len(frame_tensor) == 5+delta,"expected {} frames before prediction, got {}".format(5+delta,len(frame_tensor))
@@ -121,6 +122,9 @@ class read_frame_from_iter(torch.utils.data.IterableDataset):
                 traceback.print_exc()
 
                 raise 
+            except AssertionError as e:
+                frame_tensor , label_tensor = self.__next__
+                return frame_tensor,label_tensor
             
             #switch channel - time segment dimensions ( 1,2)
             frame_tensor = frame_tensor.permute((1,0,2,3))
@@ -137,11 +141,12 @@ class read_frame_from_iter(torch.utils.data.IterableDataset):
         for j in range(self.horizon + delta):
             #read 5 frames
             ret,val = self._cap.read()
+            _ = next(self._current_timestep)
             if ret:
                 _frames.append(val)
             else:
-                raise video_read_exception("Problem reading frame {}".format(j))
-        
+                logging.debug("Problem reading frame {}".format(j))
+                # raise video_read_exception("Problem reading frame {}".format(j))
         return _frames
 
 def main():

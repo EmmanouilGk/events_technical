@@ -23,7 +23,7 @@ def my_app(cfg: DictConfig):
     # dataset = instantiate(config = cfg.conf.datasets)  #recheck
 
     dataset = read_frame_from_iter(path_to_video= "/home/iccs/Desktop/isense/events/intention_prediction/processed_data/video_train.avi",
-                                  path_to_label="/home/iccs/Desktop/isense/events/intention_prediction/processed_data/detection_camera1/lane_changes.txt")
+                                  path_to_label="/home/iccs/Desktop/isense/events/intention_prediction/processed_data/detection_camera1/lane_changes_preprocessed.txt")
 
     # dataloader = instantiate(config = cfg.datasets.prevention_loader)  #recheck
     dataloader = DataLoader(dataset , batch_size=1 , collate_fn= collate_fn_padding)
