@@ -24,17 +24,26 @@ def my_app(cfg: DictConfig):
 
     # dataset = instantiate(config = cfg.conf.datasets)  #recheck
 
-    dataset_prevention = base_class_prevention(path_to_video = "/home/iccs/Desktop/isense/events/intention_prediction/processed_data/video_train.avi",
+    # dataset_prevention = base_class_prevention(path_to_video = "/home/iccs/Desktop/isense/events/intention_prediction/processed_data/video_train.avi",
+    #                                            path_to_label = "/home/iccs/Desktop/isense/events/intention_prediction/processed_data/detection_camera1/lane_changes_preprocessed.txt",
+    #                                            prediction_horizon=5,
+    #                                            splits=(0.8,0.1,0.1))
+
+
+    dataset_train = read_frame_from_iter_train(path_to_video = "/home/iccs/Desktop/isense/events/intention_prediction/processed_data/video_train.avi",
                                                path_to_label = "/home/iccs/Desktop/isense/events/intention_prediction/processed_data/detection_camera1/lane_changes_preprocessed.txt",
                                                prediction_horizon=5,
                                                splits=(0.8,0.1,0.1))
 
+    dataset_val = read_frame_from_iter_val(path_to_video = "/home/iccs/Desktop/isense/events/intention_prediction/processed_data/video_train.avi",
+                                               path_to_label = "/home/iccs/Desktop/isense/events/intention_prediction/processed_data/detection_camera1/lane_changes_preprocessed.txt",
+                                               prediction_horizon=5,
+                                               splits=(0.8,0.1,0.1))
 
-    dataset_train = read_frame_from_iter_train()
-
-    dataset_val = read_frame_from_iter_val()
-
-    dataset_test = read_frame_from_iter_test()
+    dataset_test = read_frame_from_iter_test(path_to_video = "/home/iccs/Desktop/isense/events/intention_prediction/processed_data/video_train.avi",
+                                               path_to_label = "/home/iccs/Desktop/isense/events/intention_prediction/processed_data/detection_camera1/lane_changes_preprocessed.txt",
+                                               prediction_horizon=5,
+                                               splits=(0.8,0.1,0.1))
 
     # dataloader = instantiate(config = cfg.datasets.prevention_loader)  #recheck
     dataloader_train = DataLoader(dataset_train , batch_size=1 , collate_fn= collate_fn_padding)

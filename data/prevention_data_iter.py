@@ -6,13 +6,15 @@ from torchvision.transforms import ToTensor , Resize , Compose
 import  cv2
 import queue
 import traceback
+from abc import abstractmethod,ABC
 
+from tqdm import tqdm
 class video_read_exception(Exception):
 
     def __init__(self, message, ) -> None:
         super().__init__(message, )
 
-class base_class_prevention(torch.utils.data.IterableDataset):
+class base_class_prevention(ABC):
     """
     base class for prevention dataset in torch 
     parent of train,val,test
@@ -37,14 +39,19 @@ class base_class_prevention(torch.utils.data.IterableDataset):
 
         self.transform = Compose([ ToTensor() , Resize((self.H,self.W)) ]) #transfor for each read frame
 
-
+        ###read and validate video
         self._cap_train = VideoCapture(self.path_to_video)
+        self._cap_val=self._cap_train
+        self._cap_test=self._cap_train
+
+        self._validate_video(self._cap_train , desc = "train")
+
         self._max_train_frames = int(self._cap_train.get(cv2.CAP_PROP_FRAME_COUNT))   #MAX_FRAMES - used for timestamp iterator
+        self.h , self.w = self._cap_train.get(cv2.CAP_PROP_FRAME_HEIGHT),self._cap_train.get(cv2.CAP_PROP_FRAME_WIDTH)
+        self.fps = self._cap_train.get(cv2.CAP_PROP_FPS)
+        self._cap_val.set(cv2.CAP_PROP_POS_FRAMES, (1-val)*self._max_train_frames)
+        self._cap_test.set(cv2.CAP_PROP_POS_FRAMES, (1-test)*self._max_train_frames)
 
-        self._cap_val = set(cv2.CV_CAP_PROP_POS_FRAMES, (1-val)*self._max_train_frames)
-        self._cap_test = set(cv2.CV_CAP_PROP_POS_FRAMES, (1-test)*self._max_train_frames)
-
-    
         self._maneuver_type=[]
 
         _lines=[]
@@ -67,8 +74,37 @@ class base_class_prevention(torch.utils.data.IterableDataset):
             self._maneuver_type.append(_line[2])
 
             # self._next_step.put(labels[line+1][3])    #maneuver end times
+   
         
-class read_frame_from_iter_train(base_class_prevention):
+    def __repr__(self):
+        return "Training video sequence information\n FPS:{}\nMax Frames:{}\nSize{}x{}".format(self.fps,self._max_train_frames,
+                                                                                                   self.h,self.w)
+
+    def _validate_video(self,
+                        video:cv2.VideoCapture,
+                        desc:str)->None:
+        """
+        validate cv2 reads video frames with no error , for all length of video
+        """
+        with tqdm(total=video.get(cv2.CAP_PROP_FRAME_COUNT)) as pbar:
+            while video.isOpened():
+                try:
+                    ret,frame = video.read()
+                    pbar.set_description_str("processing frame {}".format(idx:=video.get(cv2.CAP_PROP_POS_FRAMES)))
+                    pbar.update(1)
+                    if not ret and idx<video.get(cv2.CAP_PROP_FRAME_COUNT):
+                        raise video_read_exception(message="video frame at position {} missing".format(idx))
+                    if frame is None:
+                        break
+                except Exception as e:
+                    raise e
+                except KeyboardInterrupt as k:
+                    break
+        print("Video {} is ok".format(desc) )
+
+
+class read_frame_from_iter_train(base_class_prevention,
+                                 torch.utils.data.IterableDataset):
     """
     Torch iterable dataset impolementation for reading 4D camera input for manuever 
     detection , training set.
@@ -79,29 +115,23 @@ class read_frame_from_iter_train(base_class_prevention):
     """
 
 
-    def __init__(self , 
-                 
-                 splits: List[float] =[0.8,0.1,0.1] ,
-                 horizon: int = 5 ,
-                 *args,
-                 **kwargs) -> None:
+    def __init__(self , *args, **kwargs) -> None:
         """
         attributes
         path_to_lane_changes: lane_changes.txt
         cap: video capture for video path
         k : increment for constructing 4D image dataset
         """
-        super(read_frame_from_iter_train).__init__()
+        super(read_frame_from_iter_train,self).__init__(**kwargs)
         
         self.video_iter = self._cap_train
-
+        
         self._next_maneuver_begin = iter(self._next_maneuver_begin)
         self._next_maneuver_end = iter(self._next_maneuver_end)
 
         self._maneuver_type = iter(self._maneuver_type)
-        self._current_timestep = iter(range(1, self._length))
-
-            
+        self._current_timestep = iter(range( self._train*self._max_train_frames))
+   
     def __iter__(self):
         return self
     
@@ -128,13 +158,15 @@ class read_frame_from_iter_train(base_class_prevention):
             #iter over redundant video frames
             for _ in range(_current_timestep , _next_maneuver_begin - self.horizon ):
                 _ = next(self._current_timestep) #update current time
-                ret,_ = self._cap.read()  #move past redundant frames
+                ret,_ = self.video_iter.read()  #move past redundant frames
                 if not ret:
                     traceback.print_exc()
                     # raise ValueError()
             try:
-                frame_tensor = (self._get_video_tensor(delta := _next_maneuver_end - _next_maneuver_begin))
+                frame_tensor = (self._get_video_tensor(delta := _next_maneuver_end - _next_maneuver_begin))  #get 4d spatiotemporal tensor for pre-maneuver video sequence
+                
                 assert len(frame_tensor) == 5+delta,"expected {} frames before prediction, got {}".format(5+delta,len(frame_tensor))
+                
                 frame_tensor = torch.stack([self.transform(x) for x in frame_tensor])  #apply to tensor
                 
 
@@ -145,7 +177,7 @@ class read_frame_from_iter_train(base_class_prevention):
 
                 raise 
             except AssertionError as e:
-                frame_tensor , label_tensor = self.__next__
+                frame_tensor , label_tensor = self.__next__()
                 return frame_tensor,label_tensor
             
             #switch channel - time segment dimensions ( 1,2)
@@ -162,16 +194,17 @@ class read_frame_from_iter_train(base_class_prevention):
         _frames = []
         for j in range(self.horizon + delta):
             #read 5 frames
-            ret,val = self._cap.read()
+            ret,val = self.video_iter.read()
             _ = next(self._current_timestep)
             if ret:
                 _frames.append(val)
             else:
                 logging.debug("Problem reading frame {}".format(j))
-                # raise video_read_exception("Problem reading frame {}".format(j))
+                raise video_read_exception("Problem reading frame {}".format(j))
         return _frames
     
-class read_frame_from_iter_val(base_class_prevention):
+class read_frame_from_iter_val(base_class_prevention,
+                               torch.utils.data.IterableDataset):
     """
     Torch iterable dataset impolementation for reading 4D camera input for manuever 
     detection , training set.
@@ -183,9 +216,7 @@ class read_frame_from_iter_val(base_class_prevention):
 
 
     def __init__(self , 
-                 
-                 splits: List[float] =[0.8,0.1,0.1] ,
-                 horizon: int = 5 ,
+                
                  *args,
                  **kwargs) -> None:
         """
@@ -194,15 +225,14 @@ class read_frame_from_iter_val(base_class_prevention):
         cap: video capture for video path
         k : increment for constructing 4D image dataset
         """
-        super(read_frame_from_iter_val).__init__()
+        super(read_frame_from_iter_val,self).__init__(**kwargs)
         
         self.video_iter = self._cap_val
 
-        self._current_timestep = iter(range(_val_start := self._max_train_frames*self._train))
-        self._next_maneuver_begin = filter(self._next_maneuver_begin,lambda x : x>_val_start)
-        self._next_maneuver_end = filter(self._next_maneuver_end,lambda x : x>_val_start)
-        self._next_maneuver_end = filter(self._maneuver_type,lambda x : x>_val_start)
-
+        self._current_timestep = iter(range(_val_start := int(self._max_train_frames*self._train) , int(self._max_train_frames*self._val)))
+        self._next_maneuver_begin = filter(lambda x : x>_val_start , self._next_maneuver_begin, )
+        self._next_maneuver_end = filter(lambda x : x>_val_start , self._next_maneuver_end,)
+        self._next_maneuver_end = filter(lambda x : x>_val_start , self._maneuver_type,)
             
     def __iter__(self):
         return self
@@ -273,7 +303,8 @@ class read_frame_from_iter_val(base_class_prevention):
                 # raise video_read_exception("Problem reading frame {}".format(j))
         return _frames
     
-class read_frame_from_iter_test(base_class_prevention):
+class read_frame_from_iter_test(base_class_prevention,
+                                torch.utils.data.IterableDataset):
     """
     Torch iterable dataset impolementation for reading 4D camera input for manuever 
     detection , training set.
@@ -284,37 +315,37 @@ class read_frame_from_iter_test(base_class_prevention):
     """
 
 
-    def __init__(self , 
-                 
-                 splits: List[float] =[0.8,0.1,0.1] ,
-                 horizon: int = 5 ,
-                 *args,
-                 **kwargs) -> None:
+    def __init__(self , *args,**kwargs) -> None:
         """
         attributes
         path_to_lane_changes: lane_changes.txt
         cap: video capture for video path
         k : increment for constructing 4D image dataset
         """
-        super(read_frame_from_iter_test).__init__()
+        super(read_frame_from_iter_test,self).__init__(**kwargs)
         
         self.video_iter = self._cap_test
         
-        self._current_timestep = iter(range(_test_start := self._max_train_frames*self._test))
-        self._next_maneuver_begin = filter(self._next_maneuver_begin,lambda x : x>_test_start)
-        self._next_maneuver_end = filter(self._next_maneuver_end,lambda x : x>_test_start)
-        self._next_maneuver_end = filter(self._maneuver_type,lambda x : x>_test_start)
+        self._current_timestep = iter(range(_test_start := int(self._max_train_frames*self._test),self._max_train_frames))
+        self._next_maneuver_begin = filter(lambda x : x>_test_start,self._next_maneuver_begin)
+        self._next_maneuver_end = filter(lambda x : x>_test_start,self._next_maneuver_end)
+        self._next_maneuver_end = filter(lambda x : x>_test_start,self._maneuver_type)
 
             
     def __iter__(self):
         return self
     
-    def _info_gen(self):
+    def _info_gen(self,verbose):
         """
         get current frame infor and update iterators
         """
-        
-        return next(self._current_timestep) , next(self._next_maneuver_begin) , next(self._next_maneuver_end) , next(self._maneuver_type)
+        if verbose:
+            print("Current time step in video read is {}".format(ct := next(self._current_timestep)))
+            print("Next maneuver begin step in video read is {}".format(mb := next(self._next_maneuver_begin)))
+            print("Next maenuber end step in video read is {}".format(me := next(self._next_maneuver_end)))
+            print("Maneuver type in video read is {}".format(mt := next(self._maneuver_type)))
+
+        return ct,mb,me,mt
     
     def __next__(self) -> Tuple[torch.FloatTensor , torch.FloatTensor]:
             """
@@ -327,7 +358,7 @@ class read_frame_from_iter_test(base_class_prevention):
             # _end = _current_step[6]
             # _maneuver_type=_current_step[3]
 
-            _current_timestep , _next_maneuver_begin , _next_maneuver_end ,  _manuever_type = self._info_gen()
+            _current_timestep , _next_maneuver_begin , _next_maneuver_end ,  _manuever_type = self._info_gen(verbose=True)
             
             #iter over redundant video frames
             for _ in range(_current_timestep , _next_maneuver_begin - self.horizon ):
@@ -336,6 +367,7 @@ class read_frame_from_iter_test(base_class_prevention):
                 if not ret:
                     traceback.print_exc()
                     # raise ValueError()
+
             try:
                 frame_tensor = (self._get_video_tensor(delta := _next_maneuver_end - _next_maneuver_begin))
                 assert len(frame_tensor) == 5+delta,"expected {} frames before prediction, got {}".format(5+delta,len(frame_tensor))
