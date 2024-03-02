@@ -8,7 +8,7 @@ prevention:
   _path_to_video_val: "/home/iccs/Desktop/isense/events/intention_prediction/video_val.avi"
   _path_to_video_test: "/home/iccs/Desktop/isense/events/intention_prediction/video_test.avi"
 
-  path_to_label: "/home/iccs/Desktop/isense/events/intention_prediction/detection_camera1/lane_changes_preprocessed.txt"
+  path_to_label: "/home/iccs/Desktop/isense/events/intention_prediction/detection_camera1/lane_changes.txt"
   dataset_root: "/home/iccs/Desktop/isense/events/intention_prediction/"
   dataset_name: "prevention"
   dataset_size: 

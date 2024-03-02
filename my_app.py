@@ -3,10 +3,12 @@ from hydra.utils import instantiate
 import logging
 from omegaconf import DictConfig
 
+import os
 from os.path import join
 from torch.utils.data import DataLoader
 
 from data.prevention_data_iter import *
+from data.preprocess_labels import _preprocess_label_file
 from src.train_epochs import *
 from models.load_resnet import *
 from data.data_loader_utils import collate_fn_padding
@@ -22,12 +24,23 @@ def my_app(cfg: DictConfig):
 
     # dataset = instantiate(config = cfg.conf.datasets)  #recheck
 
-    dataset = read_frame_from_iter(path_to_video= "/home/iccs/Desktop/isense/events/intention_prediction/processed_data/video_train.avi",
-                                  path_to_label="/home/iccs/Desktop/isense/events/intention_prediction/processed_data/detection_camera1/lane_changes_preprocessed.txt")
+    dataset_prevention = base_class_prevention(path_to_video = "/home/iccs/Desktop/isense/events/intention_prediction/processed_data/video_train.avi",
+                                               path_to_label = "/home/iccs/Desktop/isense/events/intention_prediction/processed_data/detection_camera1/lane_changes_preprocessed.txt",
+                                               prediction_horizon=5,
+                                               splits=(0.8,0.1,0.1))
+
+
+    dataset_train = read_frame_from_iter_train()
+
+    dataset_val = read_frame_from_iter_val()
+
+    dataset_test = read_frame_from_iter_test()
 
     # dataloader = instantiate(config = cfg.datasets.prevention_loader)  #recheck
-    dataloader = DataLoader(dataset , batch_size=1 , collate_fn= collate_fn_padding)
-    
+    dataloader_train = DataLoader(dataset_train , batch_size=1 , collate_fn= collate_fn_padding)
+    dataloader_val = DataLoader(dataset_val , batch_size=1 , collate_fn= collate_fn_padding)
+    dataloader_test = DataLoader(dataset_test , batch_size=1 , collate_fn= collate_fn_padding)
+
     # model = instantiate(cfg.conf.models)   #recheck 
     model = torch.hub.load('facebookresearch/pytorchvideo', 'slow_r50', pretrained=True)
 
@@ -40,12 +53,22 @@ def my_app(cfg: DictConfig):
     dev = torch.device("cuda:0")
 
     train(cfg , 
-          dataloader = dataloader , 
+          dataloader_train = dataloader_train , 
+          dataloader_val = dataloader_val,
           model = model , 
           optimizer = optimizer,
           scheduler = scheduler,
           epochs = epochs,
-          dev= dev)
+          dev= dev,
+          model_save_path="/home/iccs/Desktop/isense/events/intention_prediction/models/weights/")
+    
+    test(cfg , dataloader_test , model , dev)
 
 if __name__=="__main__":
+    """
+    confg app / check preprocessing dependencies
+    """
+    if not os.path.isfile("/home/iccs/Desktop/isense/events/intention_prediction/processed_data/detection_camera1/lane_changes_preprocessed.txt"):
+        _preprocess_label_file()
+    
     my_app()

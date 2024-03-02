@@ -48,6 +48,8 @@ def train(*args,**kwargs):
     writer = SummaryWriter(log_dir= "/home/iccs/Desktop/isense/events/intention_prediction/logs" )
     scheduler = kwargs["scheduler"]
     criterion = torch.nn.CrossEntropyLoss()
+    model=kwargs["model"]
+    optimizer=kwargs["optimizer"]
     kwargs.update({"criterion":criterion})
 
     for epoch in  range(max_epochs):
@@ -65,14 +67,18 @@ def train(*args,**kwargs):
         writer.add_scalar("Val Recall" , val_losses_dict["acc"] ,  (epoch-1)*max_batches + list(range(1,max_batches)))
 
         scheduler.step()
+        torch.save({'epoch': epoch,
+            'model_state_dict': model.state_dict(),
+            'optimizer_state_dict': optimizer.state_dict(),
+            
+            }, kwargs["model_save_path"])
 
 
 #equiv to logging_utils().tb_writer(train_one_epoch(*args,**kwargs))
 # @logging_utils().tb_writer():
 def train_one_epoch(*args , **kwargs):
 
-
-        data_loader = kwargs["dataloader"]
+        data_loader = kwargs["dataloader_train"]
         dev=kwargs["dev"]
         model = kwargs["model"]
         criterion = kwargs["criterion"]
@@ -105,7 +111,10 @@ def train_one_epoch(*args , **kwargs):
 
 @torch.no_grad
 def val_one_epoch(*args , **kwargs):
-        data_loader = kwargs["loader"]
+        """
+        validate one epoch
+        """
+        data_loader = kwargs["dataloader_val"]
         dev=kwargs["dev"]
         model = kwargs["model"]
         criterion = kwargs["criterion"]

@@ -1,4 +1,4 @@
-def main():
+def _preprocess_label_file():
     """
     rmv maneuver sequences <=20 frames for consistency
     """
@@ -17,5 +17,5 @@ def main():
 
 
 if __name__=="__main__":
-    main()
+    _preprocess_label_file()
     
