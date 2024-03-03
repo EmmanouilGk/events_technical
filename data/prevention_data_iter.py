@@ -135,7 +135,7 @@ class read_frame_from_iter_train(base_class_prevention,
         self._maneuver_type = iter(self._maneuver_type)
         self._current_timestep = iter(range( int(self._train*self._max_train_frames)))
 
-    
+        self._init_params = kwargs
    
     def __iter__(self):
         # while 1:
@@ -199,7 +199,11 @@ class read_frame_from_iter_train(base_class_prevention,
             raise StopIteration
     
     def _restart(self):
-        self.video_iter.set(cv2.CAP_PROP_POS_FRAMES , 0)
+        """
+        restart iterators for multi-epoch batch training
+        """
+        super(read_frame_from_iter_train , self).__init__(self._init_params)
+
 
     def _get_video_tensor(self , delta):
         """
