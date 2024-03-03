@@ -8,6 +8,8 @@ import queue
 import traceback
 from abc import abstractmethod,ABC
 
+from copy import copy,deepcopy
+
 from tqdm import tqdm
 class video_read_exception(Exception):
 
@@ -29,7 +31,7 @@ class base_class_prevention(ABC):
         """
         super(base_class_prevention).__init__()
         train , val , test = splits
-        self._train , self._val , self._test = 1 , 1-val , 1-test
+        self._train , self._val , self._test = train ,val ,test
         self.path_to_video = path_to_video
         self.path_to_lane_changes = path_to_label
         self.H = 400
@@ -41,14 +43,17 @@ class base_class_prevention(ABC):
 
         ###read and validate video
         self._cap_train = VideoCapture(self.path_to_video)
-        self._cap_val=self._cap_train
-        self._cap_test=self._cap_train
+        self._cap_val=VideoCapture(self.path_to_video)
+        self._cap_test=VideoCapture(self.path_to_video)
 
-        self._validate_video(self._cap_train , desc = "train")
+        # self._validate_video(self._cap_train , desc = "train"
 
         self._max_train_frames = int(self._cap_train.get(cv2.CAP_PROP_FRAME_COUNT))   #MAX_FRAMES - used for timestamp iterator
+
         self.h , self.w = self._cap_train.get(cv2.CAP_PROP_FRAME_HEIGHT),self._cap_train.get(cv2.CAP_PROP_FRAME_WIDTH)
         self.fps = self._cap_train.get(cv2.CAP_PROP_FPS)
+
+
         self._cap_val.set(cv2.CAP_PROP_POS_FRAMES, (1-val)*self._max_train_frames)
         self._cap_test.set(cv2.CAP_PROP_POS_FRAMES, (1-test)*self._max_train_frames)
 
@@ -121,19 +126,21 @@ class read_frame_from_iter_train(base_class_prevention,
         path_to_lane_changes: lane_changes.txt
         cap: video capture for video path
         k : increment for constructing 4D image dataset
-        """
+        """        
         super(read_frame_from_iter_train,self).__init__(**kwargs)
-        
-        self.video_iter = self._cap_train
         
         self._next_maneuver_begin = iter(self._next_maneuver_begin)
         self._next_maneuver_end = iter(self._next_maneuver_end)
 
         self._maneuver_type = iter(self._maneuver_type)
-        self._current_timestep = iter(range( self._train*self._max_train_frames))
+        self._current_timestep = iter(range( int(self._train*self._max_train_frames)))
+
+    
    
     def __iter__(self):
-        return self
+        # while 1:
+            self.video_iter = (self._cap_train)
+            return self
     
     def _info_gen(self):
         """
@@ -143,49 +150,56 @@ class read_frame_from_iter_train(base_class_prevention,
         return next(self._current_timestep) , next(self._next_maneuver_begin) , next(self._next_maneuver_end) , next(self._maneuver_type)
     
     def __next__(self) -> Tuple[torch.FloatTensor , torch.FloatTensor]:
+            
             """
             iterate over the video.
             Return video frame tensor (spatiotemporal) before maneuver (window frames)
 
             """
-
+            if self.video_iter.isOpened():
             # _maneuver = _current_step[5]
             # _end = _current_step[6]
             # _maneuver_type=_current_step[3]
 
-            _current_timestep , _next_maneuver_begin , _next_maneuver_end ,  _manuever_type = self._info_gen()
-            
-            #iter over redundant video frames
-            for _ in range(_current_timestep , _next_maneuver_begin - self.horizon ):
-                _ = next(self._current_timestep) #update current time
-                ret,_ = self.video_iter.read()  #move past redundant frames
-                if not ret:
+                _current_timestep , _next_maneuver_begin , _next_maneuver_end ,  _manuever_type = self._info_gen()
+
+                #iter over redundant video frames
+                _len = range(_current_timestep , _next_maneuver_begin - self.horizon )
+                for _ in _len:
+                    _ = next(self._current_timestep) #update current time
+                    ret,_ = self.video_iter.read()  #move past redundant frames
+                    # print(self.video_iter.get(cv2.CAP_PROP_POS_FRAMES))
+                    if not ret:
+                        traceback.print_exc()
+                        # raise ValueError()
+                try:
+                    frame_tensor = (self._get_video_tensor(delta := _next_maneuver_end - _next_maneuver_begin))  #get 4d spatiotemporal tensor for pre-maneuver video sequence
+                    
+                    assert len(frame_tensor) == 5+delta,"expected {} frames before prediction, got {}".format(5+delta,len(frame_tensor))
+                    
+                    frame_tensor = torch.stack([self.transform(x) for x in frame_tensor])  #apply to tensor
+                    
+
+                    label_tensor = torch.tensor(_manuever_type)
+                    
+                except StopIteration as e:
                     traceback.print_exc()
-                    # raise ValueError()
-            try:
-                frame_tensor = (self._get_video_tensor(delta := _next_maneuver_end - _next_maneuver_begin))  #get 4d spatiotemporal tensor for pre-maneuver video sequence
-                
-                assert len(frame_tensor) == 5+delta,"expected {} frames before prediction, got {}".format(5+delta,len(frame_tensor))
-                
-                frame_tensor = torch.stack([self.transform(x) for x in frame_tensor])  #apply to tensor
-                
 
-                label_tensor = torch.tensor(_manuever_type)
+                    raise 
+                except AssertionError as e:
+                    frame_tensor , label_tensor = self.__next__()
+                    return frame_tensor,label_tensor
                 
-            except StopIteration as e:
-                traceback.print_exc()
+                #switch channel - time segment dimensions ( 1,2)
+                frame_tensor = frame_tensor.permute((1,0,2,3))
+                assert   frame_tensor.size(0)==3 and frame_tensor.size(1)>0 and frame_tensor.size(2) == self.H and frame_tensor.size(3)==self.W,"got {} {} {} {}".format(frame_tensor.size(0),frame_tensor.size(1),frame_tensor.size(1),frame_tensor.size(1))
 
-                raise 
-            except AssertionError as e:
-                frame_tensor , label_tensor = self.__next__()
-                return frame_tensor,label_tensor
-            
-            #switch channel - time segment dimensions ( 1,2)
-            frame_tensor = frame_tensor.permute((1,0,2,3))
-            assert   frame_tensor.size(0)==3 and frame_tensor.size(1)>0 and frame_tensor.size(2) == self.H and frame_tensor.size(3)==self.W,"got {} {} {} {}".format(frame_tensor.size(0),frame_tensor.size(1),frame_tensor.size(1),frame_tensor.size(1))
-
-            
-            return frame_tensor , label_tensor
+                
+                return frame_tensor , label_tensor
+            raise StopIteration
+    
+    def _restart(self):
+        self.video_iter.set(cv2.CAP_PROP_POS_FRAMES , 0)
 
     def _get_video_tensor(self , delta):
         """
@@ -200,7 +214,7 @@ class read_frame_from_iter_train(base_class_prevention,
                 _frames.append(val)
             else:
                 logging.debug("Problem reading frame {}".format(j))
-                raise video_read_exception("Problem reading frame {}".format(j))
+                raise video_read_exception("Problem reading frame {} of video frame {}".format(j , self.video_iter.get(cv2.CAP_PROP_POS_FRAMES)))
         return _frames
     
 class read_frame_from_iter_val(base_class_prevention,

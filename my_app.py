@@ -6,14 +6,15 @@ from omegaconf import DictConfig
 import os
 from os.path import join
 from torch.utils.data import DataLoader
+from torch.utils.data import ChainDataset
 
-from data.prevention_data_iter import *
-from data.preprocess_labels import _preprocess_label_file
-from src.train_epochs import *
-from models.load_resnet import *
-from data.data_loader_utils import collate_fn_padding
+from intention_prediction.data.prevention_data_iter import *
+from intention_prediction.data.preprocess_labels import _preprocess_label_file
+from intention_prediction.src.train_epochs import *
+from intention_prediction.models.load_resnet import *
+from intention_prediction.data.data_loader_utils import collate_fn_padding
 
-
+from itertools import cycle
 
 log = logging.getLogger(__name__)
 
@@ -30,10 +31,10 @@ def my_app(cfg: DictConfig):
     #                                            splits=(0.8,0.1,0.1))
 
 
-    dataset_train = read_frame_from_iter_train(path_to_video = "/home/iccs/Desktop/isense/events/intention_prediction/processed_data/video_train.avi",
+    dataset_train = (read_frame_from_iter_train(path_to_video = "/home/iccs/Desktop/isense/events/intention_prediction/processed_data/video_train.avi",
                                                path_to_label = "/home/iccs/Desktop/isense/events/intention_prediction/processed_data/detection_camera1/lane_changes_preprocessed.txt",
                                                prediction_horizon=5,
-                                               splits=(0.8,0.1,0.1))
+                                               splits=(0.8,0.1,0.1)))
 
     dataset_val = read_frame_from_iter_val(path_to_video = "/home/iccs/Desktop/isense/events/intention_prediction/processed_data/video_train.avi",
                                                path_to_label = "/home/iccs/Desktop/isense/events/intention_prediction/processed_data/detection_camera1/lane_changes_preprocessed.txt",
@@ -46,7 +47,7 @@ def my_app(cfg: DictConfig):
                                                splits=(0.8,0.1,0.1))
 
     # dataloader = instantiate(config = cfg.datasets.prevention_loader)  #recheck
-    dataloader_train = DataLoader(dataset_train , batch_size=1 , collate_fn= collate_fn_padding)
+    dataloader_train = DataLoader(dataset_train , batch_size=1 , collate_fn= collate_fn_padding , )
     dataloader_val = DataLoader(dataset_val , batch_size=1 , collate_fn= collate_fn_padding)
     dataloader_test = DataLoader(dataset_test , batch_size=1 , collate_fn= collate_fn_padding)
 
@@ -64,12 +65,14 @@ def my_app(cfg: DictConfig):
     train(cfg , 
           dataloader_train = dataloader_train , 
           dataloader_val = dataloader_val,
+          dataset_train = dataset_train,
+          dataset_val = dataset_val,
           model = model , 
           optimizer = optimizer,
           scheduler = scheduler,
           epochs = epochs,
           dev= dev,
-          model_save_path="/home/iccs/Desktop/isense/events/intention_prediction/models/weights/")
+          model_save_path="/home/iccs/Desktop/isense/events/intention_prediction/models/weights/train_01_03_03.pt")
     
     test(cfg , dataloader_test , model , dev)
 

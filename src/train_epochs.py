@@ -1,11 +1,15 @@
 import contextlib
+from typing import Dict
 import numpy as np
 import torch
 from torch.utils.tensorboard import SummaryWriter
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-from sklearn.metrics import precision_score,recall_score
+from sklearn.metrics import accuracy_score, precision_score,recall_score
+from ..data.data_loader_utils import collate_fn_padding
+
+from ..data.prevention_data_iter import read_frame_from_iter_train, read_frame_from_iter_val
 
 class logging_utils():
     """
@@ -41,7 +45,9 @@ class logging_utils():
 
 def train(*args,**kwargs):
     """
-    config batch training
+    config batch training and validtion
+    expexted kwargs:
+     writer,scheduler,model,optimizer,dataloader (train and val), device, save path model weights
     """
     max_epochs:int = kwargs["epochs"]  #max train epoch
     
@@ -61,10 +67,15 @@ def train(*args,**kwargs):
 
         val_losses_dict = val_one_epoch(*args, **kwargs)
 
-        writer.add_scalar(val_losses_dict["desc"] , val_losses_dict["val"] , (epoch-1)*max_batches + list(range(1,max_batches)))
-        writer.add_scalar("Val Accuracy" , val_losses_dict["acc"] ,  (epoch-1)*max_batches + list(range(1,max_batches)))
-        writer.add_scalar("Val Precision" , val_losses_dict["acc"] ,  (epoch-1)*max_batches + list(range(1,max_batches)))
-        writer.add_scalar("Val Recall" , val_losses_dict["acc"] ,  (epoch-1)*max_batches + list(range(1,max_batches)))
+        for i, (desc , val) in enumerate(val_losses_dict.items()):
+            
+            if desc=="loss_val_epoch": 
+                 for i in range(val.shape[0]):
+                    writer.add_scalars(desc,{"Batch_Loss":val[i]} , i)
+                 continue
+            print(desc)
+            print(val)
+            writer.add_scalar(desc , val,  epoch)
 
         scheduler.step()
         torch.save({'epoch': epoch,
@@ -72,6 +83,22 @@ def train(*args,**kwargs):
             'optimizer_state_dict': optimizer.state_dict(),
             
             }, kwargs["model_save_path"])
+        
+        
+
+        dataset_train = (read_frame_from_iter_train(path_to_video = "/home/iccs/Desktop/isense/events/intention_prediction/processed_data/video_train.avi",
+                                            path_to_label = "/home/iccs/Desktop/isense/events/intention_prediction/processed_data/detection_camera1/lane_changes_preprocessed.txt",
+                                            prediction_horizon=5,
+                                            splits=(0.8,0.1,0.1)))
+        
+        kwargs["dataloader_train"]=DataLoader(dataset_train , batch_size=1 , collate_fn= collate_fn_padding , )
+        
+        dataset_val = read_frame_from_iter_val(path_to_video = "/home/iccs/Desktop/isense/events/intention_prediction/processed_data/video_train.avi",
+                                                path_to_label = "/home/iccs/Desktop/isense/events/intention_prediction/processed_data/detection_camera1/lane_changes_preprocessed.txt",
+                                                prediction_horizon=5,
+                                                splits=(0.8,0.1,0.1))
+        
+        kwargs["dataloader_val"]=DataLoader(dataset_val , batch_size=1 , collate_fn= collate_fn_padding , )
 
 
 #equiv to logging_utils().tb_writer(train_one_epoch(*args,**kwargs))
@@ -88,6 +115,9 @@ def train_one_epoch(*args , **kwargs):
     #     for i in range(num_iterations):
     # accumulated_gradients = 0
         max_batches = 0
+        predictions_epoch=[]
+        labels_epoch=[]
+
         for batch_idx , (frames , maneuver_type) in (pbar:=tqdm(enumerate(data_loader))): 
 
             pbar.set_description_str("Batch: {}".format(batch_idx))
@@ -106,11 +136,17 @@ def train_one_epoch(*args , **kwargs):
             pbar.set_postfix_str("Batch loss {:0.2f}".format(loss.item()))
             max_batches+=1
 
+            predictions_epoch.append(prediction.detach().cpu().numpy())
+            labels_epoch.append(maneuver_type.detach().cpu().numpy())
+
+
+        acc = np.mean([x == y for x,y in zip(predictions_epoch , labels_epoch)])
+        print("epoch acc {}".format(acc))
 
         return {"desc":"loss_train_epoch","val":np.array(loss_epoch),"batch_count":max_batches}
 
 @torch.no_grad
-def val_one_epoch(*args , **kwargs):
+def val_one_epoch(*args , **kwargs)->Dict:
         """
         validate one epoch
         """
@@ -122,7 +158,7 @@ def val_one_epoch(*args , **kwargs):
         loss_epoch = []
         predictions_epoch = []
         labels_epoch = []
-
+        max_epochs_val = 0
         for batch_idx , (frames , maneuver_type) in (pbar:=tqdm(enumerate(data_loader))): 
 
             pbar.set_description_str("Batch: {}/{}".format(batch_idx))
@@ -135,16 +171,21 @@ def val_one_epoch(*args , **kwargs):
             loss = criterion(prediction , maneuver_type)
 
             #to comute eval metrics
-            predictions_epoch.append(prediction)
-            labels_epoch.append(maneuver_type)
+            predictions_epoch.append(prediction.detach().cpu().numpy())
+            labels_epoch.append(maneuver_type.detach().cpu().numpy())
 
             loss_epoch.append(loss.item())
 
             pbar.set_postfix_str("Val Batch loss {:0.2f}".format(loss.item()))
 
-        acc = [x == y for x,y in zip(predictions_epoch , labels_epoch)]
-        
+            max_epochs_val+=1
+
+        acc = accuracy_score(labels_epoch , predictions_epoch)
         pres=precision_score(labels_epoch , predictions_epoch)
         rec =recall_score(labels_epoch , predictions_epoch)
 
-        return {"desc":"loss_train_epoch","val":np.array(loss_epoch),"acc":acc,"pres":pres , "rec":rec}
+        return {"loss_val_epoch":np.array(loss_epoch),
+                "val_acc":acc,
+                "val_pres":pres , 
+                "val_rec":rec ,
+                "batch_count":max_epochs_val}
