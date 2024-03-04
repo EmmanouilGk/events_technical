@@ -61,7 +61,7 @@ class base_class_prevention(ABC):
         # self._validate_video(self._cap_train , desc = "train"
 
         self._max_train_frames = int(self._cap_train.get(cv2.CAP_PROP_FRAME_COUNT))   #MAX_FRAMES - used for timestamp iterator
-        input(self._max_train_frames)
+        input("Max frames of video is {}".format(self._max_train_frames))
 
         self.h , self.w = self._cap_train.get(cv2.CAP_PROP_FRAME_HEIGHT),self._cap_train.get(cv2.CAP_PROP_FRAME_WIDTH)
         self.fps = self._cap_train.get(cv2.CAP_PROP_FPS)
@@ -178,7 +178,7 @@ class read_frame_from_iter_train(base_class_prevention,
 
                 if len(_frames_list)==self.horizon:
                     _return_tensor= torch.stack([self.transform(x) for x in _frames_list])
-                    yield _return_tensor , torch.tensor(_return_prevention_class_encoded(None))
+                    yield _return_tensor , torch.tensor(_return_prevention_class_encoded(None) , dtype=torch.long)
                     _frames_list=[]
                     
 
@@ -210,7 +210,7 @@ class read_frame_from_iter_train(base_class_prevention,
                     frame_tensor = torch.stack([self.transform(x) for x in frame_tensor])  #apply to tensor
                     
 
-                    label_tensor = torch.tensor(_manuever_type)
+                    label_tensor = torch.tensor(_manuever_type , dtype=torch.long)
                     
                 except StopIteration as e:
                     traceback.print_exc()
@@ -263,8 +263,7 @@ class read_frame_from_iter_val(base_class_prevention,
     """
 
 
-    def __init__(self , 
-                
+    def __init__(self ,
                  *args,
                  **kwargs) -> None:
         """
@@ -275,18 +274,18 @@ class read_frame_from_iter_val(base_class_prevention,
         """
         super(read_frame_from_iter_val,self).__init__(**kwargs)
 
-        self._current_timestep = iter(range(_val_start := int(self._max_train_frames*self._train) , int(self._max_train_frames*self._val)))
+        self._current_timestep = iter(range(_val_start := int(self._max_train_frames*self._train) , int(self._max_train_frames*0.9)))
         self._next_maneuver_begin = filter(lambda x : x>_val_start , self._next_maneuver_begin, )
         self._next_maneuver_end = filter(lambda x : x>_val_start , self._next_maneuver_end,)
         self._next_maneuver_type =  iter(self._maneuver_type[_val_start:])
 
-        input(next(self._next_maneuver_type))
+        
 
             
     def __iter__(self):
         self.video_iter = (self._cap_val)
-        self._cap_val.set(cv2.CAP_PROP_POS_FRAMES, self._val*self._max_train_frames)
-
+        self.video_iter.set(cv2.CAP_PROP_POS_FRAMES, 0.8*self._max_train_frames)
+       
         return self
     
     def _info_gen(self):
@@ -294,7 +293,7 @@ class read_frame_from_iter_val(base_class_prevention,
         get current frame infor and update iterators
         """
         
-        return next(self._current_timestep) , next(self._next_maneuver_begin) , next(self._next_maneuver_end) , next(self._maneuver_type)
+        return next(self._current_timestep) , next(self._next_maneuver_begin) , next(self._next_maneuver_end) , next(self._next_maneuver_type)
     
     def _get_lane_keep_data(self, delta ):
         """
@@ -310,7 +309,7 @@ class read_frame_from_iter_val(base_class_prevention,
                 _frames_list.append(ret)
 
                 if len(_frames_list)==self.horizon:
-                    _return_tensor= torch.stach([self.transform(x) for x in _frames_list])
+                    _return_tensor= torch.stack([self.transform(x) for x in _frames_list])
                     yield _return_tensor , torch.tensor(_return_prevention_class_encoded(None))
 
                 
@@ -321,13 +320,14 @@ class read_frame_from_iter_val(base_class_prevention,
             Return video frame tensor (spatiotemporal) before maneuver (window frames)
 
             """
+            
 
             # _maneuver = _current_step[5]
             # _end = _current_step[6]
             # _maneuver_type=_current_step[3]
 
             _current_timestep , _next_maneuver_begin , _next_maneuver_end ,  _manuever_type = self._info_gen()
-            input(_current_timestep)
+        
             #iter over redundant video frames
             if delta:=_current_timestep -_next_maneuver_begin - self.horizon>0:
                 self._get_lane_keep_data( delta )
@@ -363,7 +363,7 @@ class read_frame_from_iter_val(base_class_prevention,
         _frames = []
         for j in range(self.horizon + delta):
             #read 5 frames
-            ret,val = self._cap.read()
+            ret,val = self.video_iter.read()
             _ = next(self._current_timestep)
             if ret:
                 _frames.append(val)
