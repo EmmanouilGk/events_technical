@@ -29,7 +29,6 @@ def _read_lane_change_labels(label_root):
 def _write_lane_change( manever_sequences  ,dstp , cap_in ):
     cap_out = cv2.VideoWriter(dstp , fourcc , fps , (W,H))
     
-
     for maneuver in maneuver_sequences:
         lane_change_start = maneuver[3]
         lane_change_event = maneuver[4]
@@ -39,14 +38,10 @@ def _write_lane_change( manever_sequences  ,dstp , cap_in ):
             cap_out.write(frame)
 
 def _write_lane_keep(maneuver , dstp_root,cap_in):
-    
     frame_list=[]
     for frame,idx in _vid_gen(cap_in):
-
-        
         frame_list.write(frame)
         if maneuver[4]==idx:break
-
 
 def _gen_pairs_man(man_src , ):
     man_processed = _read_lane_change_labels(man_src)
@@ -55,6 +50,9 @@ def _gen_pairs_man(man_src , ):
         yield man_processed[idx_1 , :] , man_processed[idx_2,:]
 
 def _get_seg_man(cap):
+    """
+    get sequences betwween maneuvers
+    """
     for i, (frame_start , frame_end) in enumerate(_gen_pairs_man()):
         cap.set(cv2.CAP_PROP_POS_FRAMES , frame_start[5])
         while True:
@@ -70,7 +68,8 @@ def _get_seg_man(cap):
 def _save_seg(cap , dstp , **kwargs):
     for frame_seg in _get_seg_man(cap):
         cap_out = cv2.VideoWriter(dstp , fourcc= cv2.VideoWriter_fourcc(*"mp4v"), fps = kwargs["fps"], frameSize=(kwargs["W"],kwargs["H"]))
-        for frame in frame_seg
+        for frame in frame_seg:
+            cap_out.write(frame)
 
 def main():
     cap = cv2.VideoCapture(root = "/home/iccs/Desktop/isense/events/intention_prediction/processed_data/video_camera1.mp4",
