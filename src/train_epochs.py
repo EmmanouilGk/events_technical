@@ -50,34 +50,34 @@ def train(*args,**kwargs):
      writer,scheduler,model,optimizer,dataloader (train and val), device, save path model weights
     """
     max_epochs:int = kwargs["epochs"]  #max train epoch
-    
+    dev = kwargs["dev"]
     writer = SummaryWriter(log_dir= "/home/iccs/Desktop/isense/events/intention_prediction/logs" )
     scheduler = kwargs["scheduler"]
-    criterion = torch.nn.CrossEntropyLoss()
+    criterion = torch.nn.CrossEntropyLoss( weight= torch.tensor(data = (  (309+72)/36  ,(309+72)/36 ,  (309+72)/309 ,) , dtype=torch.float , device=dev))
     model=kwargs["model"]
     optimizer=kwargs["optimizer"]
     kwargs.update({"criterion":criterion})
 
     for epoch in  range(max_epochs):
 
-        losses_dict = train_one_epoch(*args , **kwargs)
+        losses_dict = train_one_epoch(*args , **kwargs)   #train losses dict
 
         for i,loss in enumerate(losses_dict["val"]):
-            writer.add_scalar(losses_dict["desc"] , loss ,  (epoch-1)*losses_dict["batch_count"] + i)
+            writer.add_scalar(losses_dict["desc"] , loss ,  (epoch-1)*losses_dict["batch_count"] + i)  #plot losses 
 
-        val_losses_dict = val_one_epoch(*args, **kwargs)
+        val_losses_dict = val_one_epoch(*args, **kwargs)  #vla losses dict
 
         for i, (desc , val) in enumerate(val_losses_dict.items()):
-            
             if desc=="loss_val_epoch": 
                  for i in range(val.shape[0]):
-                    writer.add_scalars(desc,{"Batch_Loss":val[i]} , i)
+                    print("drawing batch loss  of batch {} ".format(i))
+                    writer.add_scalar("Val Batch_Loss" , val[i] , (epoch-1)*losses_dict["batch_count"] + i)  #plot val loss
                  continue
-            print(desc)
-            print(val)
-            writer.add_scalar(desc , val,  epoch)
+            
+            writer.add_scalar(desc , val,  epoch)   # add epoch wise acc,pres etc metrics 
 
         scheduler.step()
+
         torch.save({'epoch': epoch,
             'model_state_dict': model.state_dict(),
             'optimizer_state_dict': optimizer.state_dict(),
@@ -86,6 +86,7 @@ def train(*args,**kwargs):
         
         
 
+        #reset datasets for multi-epoch iterations ->change again
         dataset_train = (read_frame_from_iter_train(path_to_video = "/home/iccs/Desktop/isense/events/intention_prediction/processed_data/video_train.avi",
                                             path_to_label = "/home/iccs/Desktop/isense/events/intention_prediction/processed_data/detection_camera1/lane_changes_preprocessed.txt",
                                             prediction_horizon=5,
@@ -120,7 +121,7 @@ def train_one_epoch(*args , **kwargs):
 
         for batch_idx , (frames , maneuver_type) in (pbar:=tqdm(enumerate(data_loader))): 
 
-            pbar.set_description_str("Batch: {}".format(batch_idx))
+            pbar.set_description_str("Val Batch: {}".format(batch_idx))
             
             optimizer.zero_grad()
 
@@ -128,7 +129,7 @@ def train_one_epoch(*args , **kwargs):
             maneuver_type=maneuver_type.to(dev)
 
             prediction = model(frames)
-            
+
             loss = criterion(prediction , maneuver_type)
             loss.backward()
             loss_epoch.append(loss.item())
@@ -138,7 +139,6 @@ def train_one_epoch(*args , **kwargs):
 
             predictions_epoch.append(prediction.detach().cpu().numpy())
             labels_epoch.append(maneuver_type.detach().cpu().numpy())
-
 
         acc = np.mean([x == y for x,y in zip(predictions_epoch , labels_epoch)])
         print("epoch acc {}".format(acc))
@@ -160,13 +160,14 @@ def val_one_epoch(*args , **kwargs)->Dict:
         labels_epoch = []
         max_epochs_val = 0
         for batch_idx , (frames , maneuver_type) in (pbar:=tqdm(enumerate(data_loader))): 
+            input("val one epoch works")
 
             pbar.set_description_str("Batch: {}/{}".format(batch_idx))
             
             frames = frames.to(dev)
             maneuver_type=maneuver_type.to(dev)
+
             prediction = model(frames)
-            prediction =torch.nn.Softmax(prediction)
            
             loss = criterion(prediction , maneuver_type)
 
@@ -183,6 +184,8 @@ def val_one_epoch(*args , **kwargs)->Dict:
         acc = accuracy_score(labels_epoch , predictions_epoch)
         pres=precision_score(labels_epoch , predictions_epoch)
         rec =recall_score(labels_epoch , predictions_epoch)
+
+        input(np.array(loss_epoch))
 
         return {"loss_val_epoch":np.array(loss_epoch),
                 "val_acc":acc,
