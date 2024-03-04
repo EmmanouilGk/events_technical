@@ -26,8 +26,12 @@ def _read_lane_change_labels(label_root):
     return maneuver_sequences
 
 
-def _write_lane_change( manever_sequences  ,dstp , cap_in ):
-    cap_out = cv2.VideoWriter(dstp , fourcc , fps , (W,H))
+def _write_lane_change( maneuver_sequences  ,
+                       dstp , 
+                       cap_in,
+                       **kwargs):
+    fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+    cap_out = cv2.VideoWriter(dstp , fourcc , fps=kwargs["fps"] , frameSize= (kwargs["W"] , kwargs["H"]))
     
     for maneuver in maneuver_sequences:
         lane_change_start = maneuver[3]
@@ -44,6 +48,9 @@ def _write_lane_keep(maneuver , dstp_root,cap_in):
         if maneuver[4]==idx:break
 
 def _gen_pairs_man(man_src , ):
+    """
+    generate pairs of annotattions (maneuvers) (to iterate over)
+    """
     man_processed = _read_lane_change_labels(man_src)
     man_total = len(man_processed)
     for idx_1,idx_2 in zip(range(0,man_total-1)  , range(1,man_total)):
@@ -66,6 +73,9 @@ def _get_seg_man(cap):
                     frame_list=  []
 
 def _save_seg(cap , dstp , **kwargs):
+    """
+    save seg
+    """
     for frame_seg in _get_seg_man(cap):
         cap_out = cv2.VideoWriter(dstp , fourcc= cv2.VideoWriter_fourcc(*"mp4v"), fps = kwargs["fps"], frameSize=(kwargs["W"],kwargs["H"]))
         for frame in frame_seg:

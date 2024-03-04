@@ -156,11 +156,15 @@ class read_frame_from_iter_train(base_class_prevention,
             self.video_iter = (self._cap_train)
             return self
     
-    def _info_gen(self):
+    def _info_gen(self , verbose=False):
         """
         get current frame infor and update iterators
         """
-        
+        if verbose:
+            print("Current time step {}".format(self._current_timestep))
+            print("next maneuver begin frame {}".format(self._next_maneuver_begin))
+            print("next maneuver end frame {}".format(self._next_maneuver_end))
+            print("next maneuver type is {}".format(self._maneuver_type))
         return next(self._current_timestep_iter) , next(self._next_maneuver_begin_iter) , next(self._next_maneuver_end_iter) , next(self._maneuver_type_iter)
 
     def _get_lane_keep_data(self, delta ):
@@ -201,16 +205,20 @@ class read_frame_from_iter_train(base_class_prevention,
    
                 #iter over redundant video frames
                 delta=(self._next_maneuver_begin - self.horizon - self._current_timestep )
-                if  ():
-                    print("Entered first branch")
-                    for frame,label in self._get_lane_keep_data( delta ):
+                
+                if  (delta)>=5 and (self._current_timestep+5)<=self._max_train_frames:
+                    print("Entered first branch with delta {}".format(delta))
+                    try:
+                        for frame,label in self._get_lane_keep_data( delta ):
 
-                        frame = frame.permute((1,0,2,3))
-                        
-                        return frame,label
+                            frame = frame.permute((1,0,2,3))
+                            
+                            return frame,label
+                    except StopIteration as e:
+                        raise e
                 else:
                     try:
-                        print("Entered second branch")
+                        print("Entered second branch , Video is still opened = {}".format(self.video_iter.isOpened()))
                         frame_tensor = (self._get_video_tensor(delta := self._next_maneuver_end - self._next_maneuver_begin))  #get 4d spatiotemporal tensor for pre-maneuver video sequence
                         
                         assert len(frame_tensor) == 5+delta,"expected {} frames before prediction, got {}".format(5+delta,len(frame_tensor))
@@ -224,7 +232,8 @@ class read_frame_from_iter_train(base_class_prevention,
                         frame_tensor = frame_tensor.permute((1,0,2,3))
                         assert   frame_tensor.size(0)==3 and frame_tensor.size(1)>0 and frame_tensor.size(2) == self.H and frame_tensor.size(3)==self.W,"got {} {} {} {}".format(frame_tensor.size(0),frame_tensor.size(1),frame_tensor.size(1),frame_tensor.size(1))
 
-                        self._current_timestep , self._next_maneuver_begin , self._next_maneuver_end ,  self._manuever_type = self._info_gen()
+                        self._current_timestep , self._next_maneuver_begin , self._next_maneuver_end ,  self._manuever_type = self._info_gen(verbose=True)
+                        
 
                         return frame_tensor , label_tensor
 
@@ -237,11 +246,14 @@ class read_frame_from_iter_train(base_class_prevention,
                         traceback.print_exc()
 
                         raise e
+                    except Exception as e:
+                        traceback.print_exc()
                 
                
                 
                 # return frame_tensor , label_tensor
             else:
+                print("Video is finished.")
                 raise StopIteration
     
     def _restart(self):
