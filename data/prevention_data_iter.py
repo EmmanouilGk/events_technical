@@ -201,7 +201,8 @@ class read_frame_from_iter_train(base_class_prevention,
    
                 #iter over redundant video frames
                 delta=(self._next_maneuver_begin - self.horizon - self._current_timestep )
-                if  delta>0 and self._current_timestep + self.horizon < self._next_maneuver_begin:
+                if  ():
+                    print("Entered first branch")
                     for frame,label in self._get_lane_keep_data( delta ):
 
                         frame = frame.permute((1,0,2,3))
@@ -209,6 +210,7 @@ class read_frame_from_iter_train(base_class_prevention,
                         return frame,label
                 else:
                     try:
+                        print("Entered second branch")
                         frame_tensor = (self._get_video_tensor(delta := self._next_maneuver_end - self._next_maneuver_begin))  #get 4d spatiotemporal tensor for pre-maneuver video sequence
                         
                         assert len(frame_tensor) == 5+delta,"expected {} frames before prediction, got {}".format(5+delta,len(frame_tensor))
