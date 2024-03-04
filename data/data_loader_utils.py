@@ -31,8 +31,11 @@ def collate_fn_padding(batch:List[Tuple[FloatTensor,FloatTensor]])->Tuple[torch.
     padded_frames : how many start frames to insert to each
     """
     padded_frames:int = 30
+
+
     frames_batch , label_batch = zip(*batch)
-    
+
+
     frames_batch=list(frames_batch)
     # label_batch = list(label_batch)
     for i, batch_item in enumerate(frames_batch):

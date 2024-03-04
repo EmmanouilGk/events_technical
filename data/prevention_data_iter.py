@@ -61,7 +61,6 @@ class base_class_prevention(ABC):
         # self._validate_video(self._cap_train , desc = "train"
 
         self._max_train_frames = int(self._cap_train.get(cv2.CAP_PROP_FRAME_COUNT))   #MAX_FRAMES - used for timestamp iterator
-        input("Max frames of video is {}".format(self._max_train_frames))
 
         self.h , self.w = self._cap_train.get(cv2.CAP_PROP_FRAME_HEIGHT),self._cap_train.get(cv2.CAP_PROP_FRAME_WIDTH)
         self.fps = self._cap_train.get(cv2.CAP_PROP_FPS)
@@ -143,13 +142,14 @@ class read_frame_from_iter_train(base_class_prevention,
         """        
         super(read_frame_from_iter_train,self).__init__(**kwargs)
         
-        self._next_maneuver_begin = iter(self._next_maneuver_begin)
-        self._next_maneuver_end = iter(self._next_maneuver_end)
+        self._next_maneuver_begin_iter = iter(self._next_maneuver_begin)
+        self._next_maneuver_end_iter = iter(self._next_maneuver_end)
 
-        self._maneuver_type = iter(self._maneuver_type)
-        self._current_timestep = iter(range( int(self._train*self._max_train_frames)))
+        self._maneuver_type_iter = iter(self._maneuver_type)
+        self._current_timestep_iter = iter(range( int(self._train*self._max_train_frames)))
 
         self._init_params = kwargs
+        self._current_timestep , self._next_maneuver_begin , self._next_maneuver_end ,  self._manuever_type = self._info_gen()
    
     def __iter__(self):
         # while 1:
@@ -161,72 +161,86 @@ class read_frame_from_iter_train(base_class_prevention,
         get current frame infor and update iterators
         """
         
-        return next(self._current_timestep) , next(self._next_maneuver_begin) , next(self._next_maneuver_end) , next(self._maneuver_type)
+        return next(self._current_timestep_iter) , next(self._next_maneuver_begin_iter) , next(self._next_maneuver_end_iter) , next(self._maneuver_type_iter)
 
     def _get_lane_keep_data(self, delta ):
         """
         return frame data stream when car keeps lane every self.hozizon time intervals
         """
         _frames_list=[]
-        for _ in range(delta):
-                _ = next(self._current_timestep) #update current time
-                ret,_ = self._cap.read()  #move past redundant frames
+        print("Currently in frame {}. Next maneuver in frame {}".format(self._current_timestep , self._next_maneuver_begin))
+        for i in range(delta//self.horizon):
+                for j in range(self.horizon):
+                    self._current_timestep = next(self._current_timestep_iter) #update current time
+                    ret,frame = self.video_iter.read()  #move past redundant frames
 
-                if not ret:
-                    traceback.print_exc()
-                _frames_list.append(ret)
+                    if not ret:
+                        traceback.print_exc()
 
-                if len(_frames_list)==self.horizon:
-                    _return_tensor= torch.stack([self.transform(x) for x in _frames_list])
-                    yield _return_tensor , torch.tensor(_return_prevention_class_encoded(None) , dtype=torch.long)
-                    _frames_list=[]
-                    
+                    _frames_list.append(frame)
 
+            # if len(_frames_list)==self.horizon:
+                frame_tensor = torch.stack([self.transform(x) for x in _frames_list])
+                print("Built 5 frame ds")
+                yield frame_tensor , torch.tensor(_return_prevention_class_encoded(None) , dtype=torch.long)
+                _frames_list=[]
+                        
                 
     
     def __next__(self) -> Tuple[torch.FloatTensor , torch.FloatTensor]:
-            
             """
             iterate over the video.
             Return video frame tensor (spatiotemporal) before maneuver (window frames)
 
             """
             if self.video_iter.isOpened():
-            # _maneuver = _current_step[5]
-            # _end = _current_step[6]
-            # _maneuver_type=_current_step[3]
-
-                _current_timestep , _next_maneuver_begin , _next_maneuver_end ,  _manuever_type = self._info_gen()
-
+            
+                
+                #if goes in lane keep part->retain the iterator current state NOT IMPLEMENTED
+            
+   
                 #iter over redundant video frames
-                if delta:=_current_timestep -_next_maneuver_begin - self.horizon>0 and _current_timestep + self.horizon < _next_maneuver_begin:
-                    self._get_lane_keep_data( delta )
+                delta=(self._next_maneuver_begin - self.horizon - self._current_timestep )
+                if  delta>0 and self._current_timestep + self.horizon < self._next_maneuver_begin:
+                    for frame,label in self._get_lane_keep_data( delta ):
 
-                try:
-                    frame_tensor = (self._get_video_tensor(delta := _next_maneuver_end - _next_maneuver_begin))  #get 4d spatiotemporal tensor for pre-maneuver video sequence
-                    
-                    assert len(frame_tensor) == 5+delta,"expected {} frames before prediction, got {}".format(5+delta,len(frame_tensor))
-                    
-                    frame_tensor = torch.stack([self.transform(x) for x in frame_tensor])  #apply to tensor
-                    
+                        frame = frame.permute((1,0,2,3))
+                        
+                        return frame,label
+                else:
+                    try:
+                        frame_tensor = (self._get_video_tensor(delta := self._next_maneuver_end - self._next_maneuver_begin))  #get 4d spatiotemporal tensor for pre-maneuver video sequence
+                        
+                        assert len(frame_tensor) == 5+delta,"expected {} frames before prediction, got {}".format(5+delta,len(frame_tensor))
+                        assert frame_tensor is not None
 
-                    label_tensor = torch.tensor(_manuever_type , dtype=torch.long)
-                    
-                except StopIteration as e:
-                    traceback.print_exc()
+                        frame_tensor = torch.stack([self.transform(x) for x in frame_tensor])  #apply to tensor
+                        
+                        label_tensor = torch.tensor(self._manuever_type , dtype=torch.long)
 
-                    raise 
-                except AssertionError as e:
-                    frame_tensor , label_tensor = self.__next__()
-                    return frame_tensor,label_tensor
+                         #switch channel - time segment dimensions ( 1,2)
+                        frame_tensor = frame_tensor.permute((1,0,2,3))
+                        assert   frame_tensor.size(0)==3 and frame_tensor.size(1)>0 and frame_tensor.size(2) == self.H and frame_tensor.size(3)==self.W,"got {} {} {} {}".format(frame_tensor.size(0),frame_tensor.size(1),frame_tensor.size(1),frame_tensor.size(1))
+
+                        self._current_timestep , self._next_maneuver_begin , self._next_maneuver_end ,  self._manuever_type = self._info_gen()
+
+                        return frame_tensor , label_tensor
+
+                    except AssertionError as e:
+                        traceback.print_exc()
+                        frame_tensor , label_tensor = self.__next__()
+                        self._current_timestep , self._next_maneuver_begin , self._next_maneuver_end ,  self._manuever_type = self._info_gen()
+                        return frame_tensor,label_tensor
+                    except StopIteration as e:
+                        traceback.print_exc()
+
+                        raise e
                 
-                #switch channel - time segment dimensions ( 1,2)
-                frame_tensor = frame_tensor.permute((1,0,2,3))
-                assert   frame_tensor.size(0)==3 and frame_tensor.size(1)>0 and frame_tensor.size(2) == self.H and frame_tensor.size(3)==self.W,"got {} {} {} {}".format(frame_tensor.size(0),frame_tensor.size(1),frame_tensor.size(1),frame_tensor.size(1))
-
+               
                 
-                return frame_tensor , label_tensor
-            raise StopIteration
+                # return frame_tensor , label_tensor
+            else:
+                raise StopIteration
     
     def _restart(self):
         """
@@ -243,7 +257,7 @@ class read_frame_from_iter_train(base_class_prevention,
         for j in range(self.horizon + delta):
             #read 5 frames
             ret,val = self.video_iter.read()
-            _ = next(self._current_timestep)
+            _ = next(self._current_timestep_iter)
             if ret:
                 _frames.append(val)
             else:
@@ -279,10 +293,11 @@ class read_frame_from_iter_val(base_class_prevention,
         self._next_maneuver_end = filter(lambda x : x>_val_start , self._next_maneuver_end,)
         self._next_maneuver_type =  iter(self._maneuver_type[_val_start:])
 
-        
-
             
     def __iter__(self):
+        """
+        init iterators
+        """
         self.video_iter = (self._cap_val)
         self.video_iter.set(cv2.CAP_PROP_POS_FRAMES, 0.8*self._max_train_frames)
        
@@ -314,47 +329,56 @@ class read_frame_from_iter_val(base_class_prevention,
 
                 
     
-    def __next__(self) -> Tuple[torch.FloatTensor , torch.tensor]:
+    def __next__(self) -> Tuple[torch.FloatTensor , torch.FloatTensor]:
             """
             iterate over the video.
             Return video frame tensor (spatiotemporal) before maneuver (window frames)
 
             """
+            if self.video_iter.isOpened():
             
-
-            # _maneuver = _current_step[5]
-            # _end = _current_step[6]
-            # _maneuver_type=_current_step[3]
-
-            _current_timestep , _next_maneuver_begin , _next_maneuver_end ,  _manuever_type = self._info_gen()
-        
-            #iter over redundant video frames
-            if delta:=_current_timestep -_next_maneuver_begin - self.horizon>0:
-                self._get_lane_keep_data( delta )
-            try:
-                frame_tensor = (self._get_video_tensor(delta := _next_maneuver_end - _next_maneuver_begin))
-                assert len(frame_tensor) == 5+delta,"expected {} frames before prediction, got {}".format(5+delta,len(frame_tensor))
-                frame_tensor = torch.stack([self.transform(x) for x in frame_tensor])  #apply to tensor
                 
+                #if goes in lane keep part->retain the iterator current state NOT IMPLEMENTED
+            
+   
+                #iter over redundant video frames
+                delta=(self._next_maneuver_begin - self.horizon - self._current_timestep )
+                if  delta>0 and self._current_timestep + self.horizon < self._next_maneuver_begin:
+                    for frame,label in self._get_lane_keep_data( delta ):
 
-                label_tensor = torch.tensor(_manuever_type)
+                        frame = frame.permute((1,0,2,3))
+                        
+                        return frame,label
+                else:
+                    try:
+                        frame_tensor = (self._get_video_tensor(delta := self._next_maneuver_end - self._next_maneuver_begin))  #get 4d spatiotemporal tensor for pre-maneuver video sequence
+                        
+                        assert len(frame_tensor) == 5+delta,"expected {} frames before prediction, got {}".format(5+delta,len(frame_tensor))
+                        
+                        frame_tensor = torch.stack([self.transform(x) for x in frame_tensor])  #apply to tensor
+                        
+                        label_tensor = torch.tensor(self._manuever_type , dtype=torch.long)
+
+                         #switch channel - time segment dimensions ( 1,2)
+                        frame_tensor = frame_tensor.permute((1,0,2,3))
+                        assert   frame_tensor.size(0)==3 and frame_tensor.size(1)>0 and frame_tensor.size(2) == self.H and frame_tensor.size(3)==self.W,"got {} {} {} {}".format(frame_tensor.size(0),frame_tensor.size(1),frame_tensor.size(1),frame_tensor.size(1))
+
+                        self._current_timestep , self._next_maneuver_begin , self._next_maneuver_end ,  self._manuever_type = self._info_gen()
+
+                        return frame_tensor , label_tensor
+
+                    except AssertionError as e:
+                        frame_tensor , label_tensor = self.__next__()
+                        return frame_tensor,label_tensor
+                    except StopIteration as e:
+                        traceback.print_exc()
+
+                        raise e
                 
-            except StopIteration as e:
-                traceback.print_exc()
-
-                raise 
-            except AssertionError as e:
-                frame_tensor , label_tensor = self.__next__
-
-
-                return frame_tensor,label_tensor
-            
-            #switch channel - time segment dimensions ( 1,2)
-            frame_tensor = frame_tensor.permute((1,0,2,3))
-            assert   frame_tensor.size(0)==3 and frame_tensor.size(1)>0 and frame_tensor.size(2) == self.H and frame_tensor.size(3)==self.W,"got {} {} {} {}".format(frame_tensor.size(0),frame_tensor.size(1),frame_tensor.size(1),frame_tensor.size(1))
-
-            
-            return frame_tensor , label_tensor
+               
+                
+                # return frame_tensor , label_tensor
+            raise StopIteration
 
     def _get_video_tensor(self , delta):
         """
