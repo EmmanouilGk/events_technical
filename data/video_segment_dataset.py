@@ -85,7 +85,19 @@ class prevention_dataset_train(Dataset):
 
     def __init__(self,
                  root,
-                 label_root) -> None:
+                 label_root , 
+                 input_label_dict_source_path,
+                 manual_split_entry,) -> None:
+        """
+        args:
+        a)one dataset:
+            a.1)root=root to frames extracted
+            a.2)label_root=label annoations
+        b)multiple dataet
+            b.1)input_label_dict_source_path : dict for paths to root, labels for each ds (as above)
+            b.2)manual split entry for each label src file for train-val-test
+        """
+
         super().__init__()
         self.H = 256
         self.W = 256
@@ -101,58 +113,116 @@ class prevention_dataset_train(Dataset):
         #assign lane change clases
         
         self.labels = self.labels[:57]#train split
+
+
+        for recording_frames , label_root , split in zip(input_label_dict_source_path.items() , manual_split_entry):
+
+            for maneuver_info in self.labels:
+                lane_start = maneuver_info[3]
+                if lane_start<0: continue
+                lane_end = maneuver_info[4]
+                maneuver_event = maneuver_info[2] #maneuver type
+                # if lane_end-lane_start>72:continue  #skip maneuvers taking too long
+                if maneuver_event==4: maneuver_event="RLC"
+                if maneuver_event==3: maneuver_event="LLC"
+                
+
+                assert lane_start>0 and lane_end>0, "Expected positive maneuver labels,got {} {}".format(lane_start , lane_end)
+
+                frames_paths = sorted([join(recording_frames , str(x) + ".png") for x in range(lane_start-5 , lane_end)])
+
+                for x in frames_paths: assert os.path.isfile(x),"No file/bad file found at path {}".format(x)
+                
+                self.data.append([frames_paths , maneuver_event])
+                
+
+
+            #assign lane keep clases
+            i=0
+            lk_counter=0
+            for maneuver in self.labels:
+                
+                frames_paths = sorted([join(root , str(x) + ".png") for x in range( i , maneuver[4])])
+                for j in range(len(frames_paths)//_PADDED_FRAMES):
+                    counter = 0
+                    _temp_list = []
+                    for frame in frames_paths:
+                        _temp_list.append(frame)
+
+                        if counter==_PADDED_FRAMES:
+                            self.data.append([_temp_list , "LK"])
+                            lk_counter+=1
+                            break
+                        else:
+                            counter+=1
+                
+                i=maneuver[5] #assingn next start to end of current manuver
+
+            # for j in range(0,20,self._MAX_VIDEO_FRAMES):
+            #     frames_temp = [] 
+            #     for frame_path in glob(join( root, "*.png")):
+            #         frames_temp.append(frame_path)
+            #         if len(frames_temp)==20:break
+                            
+            #     for maneuver_info in self.labels:
+            #         if frame_path in range(maneuver_info[5] - maneuver_info[4]):
+                
+            self.weights=_calculate_weigths_classes(maneuvers=self.labels, lk=lk_counter)
+
+
+
    
-        for maneuver_info in self.labels:
-            lane_start = maneuver_info[3]
-            if lane_start<0: continue
-            lane_end = maneuver_info[4]
-            maneuver_event = maneuver_info[2] #maneuver type
-            # if lane_end-lane_start>72:continue  #skip maneuvers taking too long
-            if maneuver_event==4: maneuver_event="RLC"
-            if maneuver_event==3: maneuver_event="LLC"
+        # for maneuver_info in self.labels:
+        #     lane_start = maneuver_info[3]
+        #     if lane_start<0: continue
+        #     lane_end = maneuver_info[4]
+        #     maneuver_event = maneuver_info[2] #maneuver type
+        #     # if lane_end-lane_start>72:continue  #skip maneuvers taking too long
+        #     if maneuver_event==4: maneuver_event="RLC"
+        #     if maneuver_event==3: maneuver_event="LLC"
             
 
-            assert lane_start>0 and lane_end>0, "Expected positive maneuver labels,got {} {}".format(lane_start , lane_end)
+        #     assert lane_start>0 and lane_end>0, "Expected positive maneuver labels,got {} {}".format(lane_start , lane_end)
 
-            frames_paths = sorted([join(root , str(x) + ".png") for x in range(lane_start-5 , lane_end)])
+        #     frames_paths = sorted([join(root , str(x) + ".png") for x in range(lane_start-5 , lane_end)])
 
-            for x in frames_paths: assert os.path.isfile(x),"No file/bad file found at path {}".format(x)
+        #     for x in frames_paths: assert os.path.isfile(x),"No file/bad file found at path {}".format(x)
             
-            self.data.append([frames_paths , maneuver_event])
+        #     self.data.append([frames_paths , maneuver_event])
             
 
 
-        #assign lane keep clases
-        i=0
-        lk_counter=0
-        for maneuver in self.labels:
+        # #assign lane keep clases
+        # i=0
+        # lk_counter=0
+        # for maneuver in self.labels:
             
-            frames_paths = sorted([join(root , str(x) + ".png") for x in range( i , maneuver[4])])
-            for j in range(len(frames_paths)//_PADDED_FRAMES):
-                counter = 0
-                _temp_list = []
-                for frame in frames_paths:
-                    _temp_list.append(frame)
+        #     frames_paths = sorted([join(root , str(x) + ".png") for x in range( i , maneuver[4])])
+        #     for j in range(len(frames_paths)//_PADDED_FRAMES):
+        #         counter = 0
+        #         _temp_list = []
+        #         for frame in frames_paths:
+        #             _temp_list.append(frame)
 
-                    if counter==_PADDED_FRAMES:
-                        self.data.append([_temp_list , "LK"])
-                        lk_counter+=1
-                        break
-                    else:
-                        counter+=1
+        #             if counter==_PADDED_FRAMES:
+        #                 self.data.append([_temp_list , "LK"])
+        #                 lk_counter+=1
+        #                 break
+        #             else:
+        #                 counter+=1
             
-            i=maneuver[5] #assingn next start to end of current manuver
+        #     i=maneuver[5] #assingn next start to end of current manuver
 
-        # for j in range(0,20,self._MAX_VIDEO_FRAMES):
-        #     frames_temp = [] 
-        #     for frame_path in glob(join( root, "*.png")):
-        #         frames_temp.append(frame_path)
-        #         if len(frames_temp)==20:break
+        # # for j in range(0,20,self._MAX_VIDEO_FRAMES):
+        # #     frames_temp = [] 
+        # #     for frame_path in glob(join( root, "*.png")):
+        # #         frames_temp.append(frame_path)
+        # #         if len(frames_temp)==20:break
                         
-        #     for maneuver_info in self.labels:
-        #         if frame_path in range(maneuver_info[5] - maneuver_info[4]):
+        # #     for maneuver_info in self.labels:
+        # #         if frame_path in range(maneuver_info[5] - maneuver_info[4]):
             
-        self.weights=_calculate_weigths_classes(maneuvers=self.labels, lk=lk_counter)
+        # self.weights=_calculate_weigths_classes(maneuvers=self.labels, lk=lk_counter)
 
 
 
@@ -208,6 +278,7 @@ class prevention_dataset_val(Dataset):
 
         self.labels = self.labels[57 - 1:65]#train split 57 first maneuver-but need to assign last frame of previeous maneuver to set the index for lane keep in between data
    
+        
 
 
         for maneuver_info in self.labels:
@@ -261,9 +332,9 @@ class prevention_dataset_val(Dataset):
             frame_stack = [cv2.imread(x) for x in segment_paths]
             frame_tensor = torch.stack([self.transform(x) for x in frame_stack] , dim=1)
 
-            assert frame_tensor.size(1) == _PADDED_FRAMES and frame_tensor.size(0) == 3
+            assert frame_tensor.size(0) == 3
 
-            label_tensor = torch.tensor(self.class_map(label) , dtype = torch.float)
+            label_tensor = torch.tensor(self.class_map[label] , dtype = torch.float)
 
             return frame_tensor , label_tensor
         
