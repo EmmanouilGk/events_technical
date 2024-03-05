@@ -24,7 +24,7 @@ def _calculate_weigths_classes(maneuvers , lk):
     w_llc=(_sum)/llc
     w_lk = (_sum)/lk
 
-
+    hello
     return {"LLC" : w_llc,
             "RLC": w_rlc,
             "LK": w_lk}
