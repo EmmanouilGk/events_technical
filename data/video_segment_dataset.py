@@ -1,5 +1,7 @@
+import os
 from typing import Any
 import cv2
+import torch
 from torch.utils.data import Dataset
 from os.path import join
 from glob import glob
@@ -20,6 +22,7 @@ def _segment_video(src="/home/iccs/Desktop/isense/events/intention_prediction/pr
                 pbar.update(1)
             else:
                 break
+
 
 def _read_lane_change_labels(label_root):
     """
@@ -42,9 +45,10 @@ class base_dataset():
     def __init__(self,
                  root,
                  label_root) -> None:
+
+            self.labels=_read_lane_change_labels(label_root)
             
-
-
+            
 
 class prevention_dataset_train(Dataset):
     """
@@ -67,7 +71,58 @@ class prevention_dataset_train(Dataset):
 
         self.labels = _read_lane_change_labels(label_root)
 
-    # def __getitem__(self, index) -> Any:/
+
+        #assign lane change clases
+        maneuver_frames = []
+        for maneuver_info in self.labels:
+            lane_start = maneuver_info[4]
+            lane_end = maneuver_info[5]
+            maneuver_event = maneuver_info[3]
+            if maneuver_event==3: maneuver_event="RLC"
+            if maneuver_event==2: maneuver_event="LLC"
+            
+            frames_paths = sorted([join(label_root , x + ".png") for x in range(lane_start-5 , maneuver_event)])
+            
+            for maneuver_frame_path in frames_paths: 
+                self.data.append([maneuver_frame_path , maneuver_event])
+
+
+        #assign lane keep clases
+        i=0
+        for maneuver in self.labels:
+            
+            frames_paths = sorted([join(label_root , x + ".png") for x in range( i , maneuver[4])])
+            for j in range(len(frames_paths)//20):
+                counter = 0
+                for frame in frames_paths:
+                    
+                    self.data.append([frame , "LK"])
+                    if counter==20:
+                        break
+                    else:
+                        counter+=1
+            
+            i=maneuver[5] #assingn next start to end of current manuver
+
+        # for j in range(0,20,self._MAX_VIDEO_FRAMES):
+        #     frames_temp = [] 
+        #     for frame_path in glob(join( root, "*.png")):
+        #         frames_temp.append(frame_path)
+        #         if len(frames_temp)==20:break
+                        
+        #     for maneuver_info in self.labels:
+        #         if frame_path in range(maneuver_info[5] - maneuver_info[4]):
+
+
+    def __getitem__(self, index) -> Any:
+            segment_paths , label = self.data[index]
+            
+            frame_stack = [cv2.imread(x) for x in segment_paths]
+            frame_tensor = torch.stack([self.transforms(x) for x in frame_stack])
+
+            label_tensor = torch.tensor(label , dtype = torch.float)
+
+            return frame_tensor , label_tensor
         
         
     def __len__(self):
