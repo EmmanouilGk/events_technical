@@ -1,6 +1,6 @@
 import numpy as np
 import torch
-
+from ..conf.conf_py import _PADDED_FRAMES
 from typing import List ,Tuple
 from torch import FloatTensor
 
@@ -30,7 +30,7 @@ def collate_fn_padding(batch:List[Tuple[FloatTensor,FloatTensor]])->Tuple[torch.
     pad frame batches to maximum meanuever frames = 64
     padded_frames : how many start frames to insert to each
     """
-    padded_frames:int = 30
+    padded_frames:int = _PADDED_FRAMES
 
 
     frames_batch , label_batch = zip(*batch)
