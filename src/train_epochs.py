@@ -2,6 +2,7 @@ import contextlib
 from typing import Dict
 import numpy as np
 import torch
+import datetime
 from torch.utils.tensorboard import SummaryWriter
 from torch.utils.data import DataLoader
 from tqdm import tqdm
@@ -51,11 +52,12 @@ def train(*args,**kwargs):
     """
     max_epochs:int = kwargs["epochs"]  #max train epoch
     dev = kwargs["dev"]
-    writer = SummaryWriter(log_dir= "/home/iccs/Desktop/isense/events/intention_prediction/logs" )
-    scheduler = kwargs["scheduler"]
+    now = datetime.datetime.now()
+    scheduler: torch.optim.lr_scheduler.ExponentialLR = kwargs["scheduler"]
 
     #load weights for training
-    weights = [kwargs["weigths"]["LK"],kwargs["weigths"]["LLC"],kwargs["weigths"]["RLC"],]
+    weights=kwargs["weights"][0]
+    weights = [weights["LK"],weights["LLC"],weights["RLC"],]
 
 
     criterion = torch.nn.CrossEntropyLoss( weight= torch.tensor(data = ( weights[0] , weights[1], weights[2]), dtype=torch.float , device=dev))
@@ -66,6 +68,9 @@ def train(*args,**kwargs):
     kwargs.update({"criterion":criterion})
     
 
+   
+    writer= kwargs["writer"]
+    
     #train and val
     for epoch in  range(max_epochs):
 
@@ -85,6 +90,8 @@ def train(*args,**kwargs):
             writer.add_scalar(desc , val,  epoch)   # add epoch wise acc,pres etc metrics 
 
         scheduler.step()
+
+        writer.addhparams({"lr" , scheduler.get_last_lr() } , {"loss_mean_val":np.mean(val_losses_dict["loss_val_epoch"])})
 
         torch.save({'epoch': epoch,
             'model_state_dict': model.state_dict(),
@@ -119,7 +126,7 @@ def train_one_epoch(*args , **kwargs):
         model = kwargs["model"].to(dev)
         criterion = kwargs["criterion"]
         optimizer = kwargs["optimizer"]
-        
+        writer= kwargs["writer"]
         loss_epoch = []
         
         accumulated_gradients = kwargs["num_iterations_gr_accum"]
@@ -142,11 +149,13 @@ def train_one_epoch(*args , **kwargs):
             loss.backward()
 
             loss_epoch.append(loss.item())
+            writer.add_scalar("Online batch loss",loss_epoch[-1],batch_idx)
 
             if ((batch_idx + 1) % accumulated_gradients == 0):
                 optimizer.step()
                 optimizer.zero_grad()
                 max_batches+=1
+                writer.add_scalar("Online batch loss-During update ", loss_epoch[-1] , batch_idx)
 
             pbar.set_postfix_str("Batch loss {:0.2f}".format(loss.item()))
 

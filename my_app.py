@@ -2,7 +2,7 @@ import hydra
 from hydra.utils import instantiate
 import logging
 from omegaconf import DictConfig
-
+import datetime
 import os
 from os.path import join
 from torch.utils.data import DataLoader
@@ -74,7 +74,11 @@ def my_app(cfg: DictConfig):
 
     weights=dataset_train.get_weights(),
 
-    train(cfg , 
+    writer = SummaryWriter(log_dir= "/home/iccs/Desktop/isense/events/intention_prediction/logs/run_{}".format(now:=datetime.datetime.now()) )
+    
+    
+
+    train(cfg , writer=writer,
           dataloader_train = dataloader_train , 
           dataloader_val = dataloader_val,
           dataset_train = dataset_train,
@@ -86,7 +90,8 @@ def my_app(cfg: DictConfig):
           epochs = epochs,
           dev= dev,
           model_save_path="/home/iccs/Desktop/isense/events/intention_prediction/models/weights/train_01_03_04.pt",
-          num_iterations_gr_accum = 8)
+          num_iterations_gr_accum = 16,
+          log_dict = {"lr":0.003})
     
     # test(cfg , dataloader_test , model , dev)
 
