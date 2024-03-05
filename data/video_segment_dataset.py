@@ -1,11 +1,13 @@
 import os
 from typing import Any
 import cv2
+import sys
 import torch
-from torch.utils.data import Dataset
+from torch.utils.data import Dataset, ConcatDataset
 from os.path import join
 from glob import glob
 from torchvision.transforms import Compose , Resize,  ToTensor
+import fnmatch
 from ..conf.conf_py import _PADDED_FRAMES
 
 from tqdm import tqdm
@@ -30,7 +32,31 @@ def _calculate_weigths_classes(maneuvers , lk):
             "LK": w_lk}
 
 def _segment_video(src="/home/iccs/Desktop/isense/events/intention_prediction/processed_data/video_camera1.mp4",
-                dstp = "/home/iccs/Desktop/isense/events/intention_prediction/processed_data/segmented_frames/"):
+                dstp = "/home/iccs/Desktop/isense/events/intention_prediction/processed_data/segmented_frames/",**kwargs):
+    
+    if kwargs["data_path"]:
+        for i, src in enumerate(kwargs["data_path"]):
+            src = src[1]
+            i=i+2
+            dstp =  "/home/iccs/Desktop/isense/events/intention_prediction/processed_data/new_data/processed_data_0{}".format(i)
+            if not os.path.isdir(join(dstp,"segmented_frames")):os.mkdir(join(dstp,"segmented_frames"))
+            dstp = join(dstp,"segmented_frames")
+            print(src)
+            cap = cv2.VideoCapture(src)
+            frame_idx=0
+            with tqdm(total=cap.get(cv2.CAP_PROP_FRAME_COUNT)) as pbar:
+                pbar.set_description_str("processing video-labels {}".format(os.path.basename(src)))
+                while True:
+                    if cap.isOpened():
+                        ret,frame = cap.read()
+                        dstp_frame = join(dstp , str(frame_idx) + ".png")
+                        cv2.imwrite(dstp_frame , frame)
+                        frame_idx+=1
+                        pbar.update(1)
+                    else:
+                        break
+
+
     cap = cv2.VideoCapture(src)
     frame_idx=0
     with tqdm(total=cap.get(cv2.CAP_PROP_FRAME_COUNT)) as pbar:
@@ -84,8 +110,8 @@ class prevention_dataset_train(Dataset):
     """
 
     def __init__(self,
-                 root,
-                 label_root) -> None:
+                 root:str,
+                 label_root:str) -> None:
         super().__init__()
         self.H = 256
         self.W = 256
@@ -116,7 +142,8 @@ class prevention_dataset_train(Dataset):
 
             frames_paths = sorted([join(root , str(x) + ".png") for x in range(lane_start-5 , lane_end)])
 
-            for x in frames_paths: assert os.path.isfile(x),"No file/bad file found at path {}".format(x)
+            for x in frames_paths: 
+                assert os.path.isfile(x),"No file/bad file found at path {}".format(x)
             
             self.data.append([frames_paths , maneuver_event])
             
@@ -154,6 +181,7 @@ class prevention_dataset_train(Dataset):
             
         self.weights=_calculate_weigths_classes(maneuvers=self.labels, lk=lk_counter)
 
+        
 
 
 
@@ -209,27 +237,29 @@ class prevention_dataset_val(Dataset):
         self.labels = self.labels[57 - 1:65]#train split 57 first maneuver-but need to assign last frame of previeous maneuver to set the index for lane keep in between data
    
 
-
         for maneuver_info in self.labels:
-            lane_start = maneuver_info[4]
-            lane_end = maneuver_info[5]
-            maneuver_event = maneuver_info[3]
+            lane_start = maneuver_info[3]
+          
+            lane_end = maneuver_info[4]
+            maneuver_event = maneuver_info[2]
             # if lane_end-lane_start>72:continue  #skip maneuvers taking too long
-            if maneuver_event==3: maneuver_event="RLC"
-            if maneuver_event==2: maneuver_event="LLC"
+            if maneuver_event==4: maneuver_event="RLC"
+            if maneuver_event==3: maneuver_event="LLC"
             
-            frames_paths = sorted([join(label_root , str(x) + ".png") for x in range(lane_start-5 , maneuver_event)])
+            frames_paths = sorted([join(label_root , str(x) + ".png") for x in range(lane_start-5 , lane_end)])
             
             self.data.append([frames_paths , maneuver_event])
 
 
         #assign lane keep clases
         i=self.labels[0][5]
+        
           #assign lane keep clases
         lk_counter=0
         for maneuver in self.labels:
             
             frames_paths = sorted([join(root , str(x) + ".png") for x in range( i , maneuver[4])])
+            
             for j in range(len(frames_paths)//_PADDED_FRAMES):
                 counter = 0
                 _temp_list = []
@@ -242,18 +272,11 @@ class prevention_dataset_val(Dataset):
                         break
                     else:
                         counter+=1
+                
             
             i=maneuver[5] #assingn next start to end of current manuver
 
-        # for j in range(0,20,self._MAX_VIDEO_FRAMES):
-        #     frames_temp = [] 
-        #     for frame_path in glob(join( root, "*.png")):
-        #         frames_temp.append(frame_path)
-        #         if len(frames_temp)==20:break
-                        
-        #     for maneuver_info in self.labels:
-        #         if frame_path in range(maneuver_info[5] - maneuver_info[4]):
-
+            
 
     def __getitem__(self, index) -> Any:
             segment_paths , label = self.data[index]
@@ -261,9 +284,9 @@ class prevention_dataset_val(Dataset):
             frame_stack = [cv2.imread(x) for x in segment_paths]
             frame_tensor = torch.stack([self.transform(x) for x in frame_stack] , dim=1)
 
-            assert frame_tensor.size(1) == _PADDED_FRAMES and frame_tensor.size(0) == 3
+            assert frame_tensor.size(0) ==3
 
-            label_tensor = torch.tensor(self.class_map(label) , dtype = torch.float)
+            label_tensor = torch.tensor(self.class_map[label] , dtype = torch.float)
 
             return frame_tensor , label_tensor
         
@@ -271,3 +294,26 @@ class prevention_dataset_val(Dataset):
     def __len__(self):
         return len(self.data)
     
+
+def construct_ds():
+    """
+    construct concat dataset from concatenation using torch.util.data.ConcatDataset
+    
+    """
+    ds_out=[]
+    for datasets in glob(join("/home/iccs/Desktop/isense/events/intention_prediction/processed_data/new_data/processed_data_0[2-5]/")):
+        label=join(datasets , "processed_data" , "detection_camera1" , "lane_changes.txt")
+        src = join(datasets , "segmented_frames/")
+        ds = prevention_dataset_train(root= src , label_root= label)
+        ds_out.append(ds)
+    ds = ConcatDataset(ds_out)
+    return ConcatDataset
+
+if __name__=="__main__":
+    data_labels_path = [
+                        # ("/home/iccs/Desktop/isense/events/intention_prediction/processed_data/new_data/processed_data_02", "/home/iccs/Desktop/isense/events/intention_prediction/processed_data/new_data/processed_data_02/video_camera1.mp4") , 
+                        ("/home/iccs/Desktop/isense/events/intention_prediction/processed_data/new_data/processed_data_03", "/home/iccs/Desktop/isense/events/intention_prediction/processed_data/new_data/processed_data_03/video_camera1.mp4"),
+                        ("/home/iccs/Desktop/isense/events/intention_prediction/processed_data/new_data/processed_data_04", "/home/iccs/Desktop/isense/events/intention_prediction/processed_data/new_data/processed_data_04/video_camera1.mp4"),
+                        # ("/home/iccs/Desktop/isense/events/intention_prediction/processed_data/new_data/processed_data_05", "/home/iccs/Desktop/isense/events/intention_prediction/processed_data/new_data/processed_data_05/'video_camera1(4).mp4'")
+                        ]
+    _segment_video(data_path = data_labels_path)

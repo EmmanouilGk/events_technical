@@ -103,9 +103,9 @@ def train(*args,**kwargs):
 
         #reset datasets for multi-epoch iterations ->change again
         dataset_train = (read_frame_from_iter_train(path_to_video = "/home/iccs/Desktop/isense/events/intention_prediction/processed_data/video_camera1.mp4",
-                                            path_to_label = "/home/iccs/Desktop/isense/events/intention_prediction/processed_data/detection_camera1/lane_changes_preprocessed.txt",
-                                            prediction_horizon=5,
-                                            splits=(0.8,0.1,0.1)))
+                                                path_to_label = "/home/iccs/Desktop/isense/events/intention_prediction/processed_data/detection_camera1/lane_changes_preprocessed.txt",
+                                                prediction_horizon=5,
+                                                splits=(0.8,0.1,0.1)))
         
         kwargs["dataloader_train"]=DataLoader(dataset_train , batch_size=1 , collate_fn= collate_fn_padding , )
         
