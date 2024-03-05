@@ -13,7 +13,7 @@ from intention_prediction.data.preprocess_labels import _preprocess_label_file
 from intention_prediction.src.train_epochs import *
 from intention_prediction.models.load_resnet import *
 from intention_prediction.data.data_loader_utils import collate_fn_padding
-from intention_prediction.data.video_segment_dataset import prevention_dataset_val , prevention_dataset_train, construct_ds
+from intention_prediction.data.video_segment_dataset import prevention_dataset_val , prevention_dataset_train, construct_ds, compute_weights
 
 from itertools import cycle
 
@@ -38,6 +38,8 @@ def my_app(cfg: DictConfig):
     dataset_train = prevention_dataset_train(root= "/home/iccs/Desktop/isense/events/intention_prediction/processed_data/segmented_frames",
                                              label_root="/home/iccs/Desktop/isense/events/intention_prediction/processed_data/detection_camera1/lane_changes.txt")
 
+    
+
     weights=dataset_train.get_weights(),
 
 
@@ -58,11 +60,14 @@ def my_app(cfg: DictConfig):
                                 prevention_dataset_train(root= "/home/iccs/Desktop/isense/events/intention_prediction/processed_data/new_data/processed_data_03/segmented_frames",
                                              label_root="/home/iccs/Desktop/isense/events/intention_prediction/processed_data/new_data/processed_data_03/processed_data/detection_camera1/lane_changes.txt")
                                 ])
+    
+    weights = compute_weights(ds = dataset_train,)
 
     print("Final dataset size is {}".format(len(dataset_train)))
 
     # dataloader = instantiate(config = cfg.datasets.prevention_loader)  #recheck
-    dataloader_train = DataLoader(dataset_train , batch_size=1 , collate_fn= collate_fn_padding , shuffle=True)
+    dataloader_train = DataLoader(dataset_train , batch_size=1 , collate_fn= collate_fn_padding , shuffle=False , sampler =torch.utils.data.WeightedRandomSampler(weights=weights, num_samples = len(dataset_train),replacement=True))
+    
     dataloader_val = DataLoader(dataset_val , batch_size=1 , collate_fn= collate_fn_padding , shuffle=True)
     # dataloader_test = DataLoader(dataset_test , batch_size=1 , collate_fn= collate_fn_padding)
 

@@ -12,6 +12,35 @@ from ..conf.conf_py import _PADDED_FRAMES
 
 from tqdm import tqdm
 
+def compute_weights(ds, 
+                    save = True):
+           """
+           Compute balancing wegiths for torch.utils.BatchSampler 
+           
+           """
+           N=len(ds)
+
+           labels=[]
+           count_lk , count_llc, count_rlc = 0, 0, 0
+           for j in tqdm(range(N)):
+                label=ds[j][1]
+                labels.append(label)
+                if label==0:count_lk+=1
+                if label==1:count_llc+=1
+                if label==2:count_rlc+=1
+           class_counts = list((count_lk , count_rlc , count_llc))
+           num_samples = sum(class_counts)
+           class_weights = [num_samples/class_counts[i] for i in range(len(class_counts))]
+           weights = [class_weights[labels[i]] for i in range(int(num_samples))]
+           weights= torch.DoubleTensor(weights)
+
+           if save:
+               torch.save(weights, "/home/iccs/Desktop/isense/events/intention_prediction/data/weights_torch/weights_union_prevention.pt")
+
+
+           return weights
+
+
 def _calculate_weigths_classes(maneuvers , lk):
     lane_change=[]
     for maneuver in maneuvers:
@@ -308,6 +337,13 @@ def construct_ds():
         ds_out.append(ds)
     ds = ConcatDataset(ds_out)
     return ConcatDataset
+
+
+class union_prevention(prevention_dataset_train , Dataset):
+    def __init__(self):
+        super(union_prevention , self).__init__()
+
+
 
 if __name__=="__main__":
     data_labels_path = [
