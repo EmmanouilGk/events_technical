@@ -56,7 +56,7 @@ def _calculate_weigths_classes(maneuvers , lk):
     w_llc=(_sum)/llc
     w_lk = (_sum)/lk
 
-
+    
     return {"LLC" : w_llc,
             "RLC": w_rlc,
             "LK": w_lk}
@@ -269,14 +269,17 @@ class prevention_dataset_val(Dataset):
 
         for maneuver_info in self.labels:
             lane_start = maneuver_info[3]
-          
             lane_end = maneuver_info[4]
+            
             maneuver_event = maneuver_info[2]
+            assert maneuver_event==3 or maneuver_event==4, "Expected maneuver label in 3,4, got {}".format(maneuver_event)
             # if lane_end-lane_start>72:continue  #skip maneuvers taking too long
             if maneuver_event==4: maneuver_event="RLC"
             if maneuver_event==3: maneuver_event="LLC"
             
-            frames_paths = sorted([join(label_root , str(x) + ".png") for x in range(lane_start-5 , lane_end)])
+            frames_paths = sorted([join(root , str(x) + ".png") for x in range(lane_start-5 , lane_end)])
+
+            assert len(frames_paths)>0,"The expected frame range is {} {}".format(lane_start-5 , lane_end)
             
             self.data.append([frames_paths , maneuver_event])
 
@@ -306,16 +309,28 @@ class prevention_dataset_val(Dataset):
             
             i=maneuver[5] #assingn next start to end of current manuver
 
-            
-            
+
+
+
+        # for j in range(0,20,self._MAX_VIDEO_FRAMES):
+        #     frames_temp = [] 
+        #     for frame_path in glob(join( root, "*.png")):
+        #         frames_temp.append(frame_path)
+        #         if len(frames_temp)==20:break
+                        
+        #     for maneuver_info in self.labels:
+        #         if frame_path in range(maneuver_info[5] - maneuver_info[4]):
+
 
     def __getitem__(self, index) -> Any:
             segment_paths , label = self.data[index]
+
+            
             
             frame_stack = [cv2.imread(x) for x in segment_paths]
             frame_tensor = torch.stack([self.transform(x) for x in frame_stack] , dim=1)
 
-            assert frame_tensor.size(0) ==3
+            # assert frame_tensor.size(1) == _PADDED_FRAMES and frame_tensor.size(0) == 3
 
             label_tensor = torch.tensor(self.class_map[label] , dtype = torch.float)
 

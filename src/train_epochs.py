@@ -68,12 +68,16 @@ def train(*args,**kwargs):
 
     ##update config params
     kwargs.update({"criterion":criterion})
-    
+    class_map=dict({0:"LK",
+                    1:"LLC",
+                    2:"RLC"})
+
+   
     writer= kwargs["writer"]
     
     torch.backends.cudnn.benchmark = True
 
-
+    
     #train and val
     for epoch in  range(max_epochs):
 
@@ -81,7 +85,8 @@ def train(*args,**kwargs):
 
         for i,loss in enumerate(losses_dict["val"]):
             writer.add_scalar(losses_dict["desc"] , loss ,  (epoch-1)*losses_dict["batch_count"] + i)  #plot losses 
-        # writer.add_scalar("Accuracy" , losses_dict["Epoch_mean_Accuracy"]  , epoch)
+
+        writer.add_scalar("Accuracy" , losses_dict["Epoch_mean_Accuracy"]  , epoch)
         
         torch.save({'epoch': epoch,
             'model_state_dict': model.state_dict(),
@@ -96,12 +101,18 @@ def train(*args,**kwargs):
                  for i in range(val.shape[0]):
                     writer.add_scalar("Val Batch_Loss" , val[i] , (epoch-1)*losses_dict["batch_count"] + i)  #plot val loss
                  continue
-            
-            writer.add_scalar(desc , val,  epoch)   # add epoch wise acc,pres etc metrics 
+            if desc=="val_pres":
+                for i in range(2):
+                    writer.add_scalars("Val micro (0=Lk,1=Llc,2=Rlc)" , {"Class {}".format(class_map[i]):val[1][i]},  i)   # add epoch wise acc,pres etc metrics 
+                continue
+
+            writer.add_scalar("Val Macro" , val[0],  epoch)   # add epoch wise acc,pres etc metrics 
+
 
         scheduler.step()
 
-        writer.addhparams({"lr" , scheduler.get_last_lr() } , {"loss_mean_val":np.mean(val_losses_dict["loss_val_epoch"])})
+        # writer.add_hparams({"lr" : scheduler.get_last_lr() } ,
+        #                     {"loss_mean_val":np.mean(val_losses_dict["loss_val_epoch"])})
 
         torch.save({'epoch': epoch,
             'model_state_dict': model.state_dict(),
@@ -110,20 +121,20 @@ def train(*args,**kwargs):
             }, kwargs["model_save_path"])
         
         
-        #reset datasets for multi-epoch iterations ->change again
-        dataset_train = (read_frame_from_iter_train(path_to_video = "/home/iccs/Desktop/isense/events/intention_prediction/processed_data/video_camera1.mp4",
-                                                path_to_label = "/home/iccs/Desktop/isense/events/intention_prediction/processed_data/detection_camera1/lane_changes_preprocessed.txt",
-                                                prediction_horizon=5,
-                                                splits=(0.8,0.1,0.1)))
+        # #reset datasets for multi-epoch iterations ->change again
+        # dataset_train = (preven(path_to_video = "/home/iccs/Desktop/isense/events/intention_prediction/processed_data/video_camera1.mp4",
+        #                                     path_to_label = "/home/iccs/Desktop/isense/events/intention_prediction/processed_data/detection_camera1/lane_changes_preprocessed.txt",
+        #                                     prediction_horizon=5,
+        #                                     splits=(0.8,0.1,0.1)))
         
-        kwargs["dataloader_train"]=DataLoader(dataset_train , batch_size=1 , collate_fn= collate_fn_padding , )
+        # kwargs["dataloader_train"]=DataLoader(dataset_train , batch_size=1 , collate_fn= collate_fn_padding , )
         
-        dataset_val = read_frame_from_iter_val(path_to_video = "/home/iccs/Desktop/isense/events/intention_prediction/processed_data/video_camera1.mp4",
-                                                path_to_label = "/home/iccs/Desktop/isense/events/intention_prediction/processed_data/detection_camera1/lane_changes_preprocessed.txt",
-                                                prediction_horizon=5,
-                                                splits=(0.8,0.1,0.1))
+        # dataset_val = read_frame_from_iter_val(path_to_video = "/home/iccs/Desktop/isense/events/intention_prediction/processed_data/video_camera1.mp4",
+        #                                         path_to_label = "/home/iccs/Desktop/isense/events/intention_prediction/processed_data/detection_camera1/lane_changes_preprocessed.txt",
+        #                                         prediction_horizon=5,
+        #                                         splits=(0.8,0.1,0.1))
         
-        kwargs["dataloader_val"]=DataLoader(dataset_val , batch_size=1 , collate_fn= collate_fn_padding , )
+        # kwargs["dataloader_val"]=DataLoader(dataset_val , batch_size=1 , collate_fn= collate_fn_padding , )
 
 
 #equiv to logging_utils().tb_writer(train_one_epoch(*args,**kwargs))
@@ -143,6 +154,8 @@ def train_one_epoch(*args , **kwargs):
         max_batches = 0
         predictions_epoch=[]
         labels_epoch=[]
+
+       
 
         for batch_idx , (frames , maneuver_type) in (pbar:=tqdm(enumerate(data_loader))): 
 
@@ -171,12 +184,14 @@ def train_one_epoch(*args , **kwargs):
             predictions_epoch.append(prediction.detach().cpu().numpy())
             labels_epoch.append(maneuver_type.detach().cpu().numpy())
 
-        # Acc = accuracy_score(labels_epoch , predictions_epoch )      
+            
+
+        acc = accuracy_score(labels_epoch , predictions_epoch )      
 
         return {"desc":"loss_train_epoch",
                 "val":np.array(loss_epoch),
-                "batch_count":max_batches,}
-                # "Epoch_mean_Accuracy" : Acc}
+                "batch_count":max_batches,
+                "Epoch_mean_Accuracy" : acc}
 
 @torch.no_grad
 def val_one_epoch(*args , **kwargs)->Dict:
@@ -193,7 +208,7 @@ def val_one_epoch(*args , **kwargs)->Dict:
         labels_epoch = []
         max_epochs_val = 0
 
-
+        
         for batch_idx , (frames , maneuver_type) in (pbar:=tqdm(enumerate(data_loader))): 
             pbar.set_description_str("Val Batch: {}".format(batch_idx))
             
@@ -218,18 +233,20 @@ def val_one_epoch(*args , **kwargs)->Dict:
         #convert to int categorical labels
         predictions_epoch=list(map(lambda x: np.argmax(x) , predictions_epoch))
         labels_epoch=list(map(lambda x: int(x) , labels_epoch))
-        
-        input(predictions_epoch)
-        input(labels_epoch)
+
         
         acc = accuracy_score(labels_epoch , predictions_epoch)
-        pres=precision_score(labels_epoch , predictions_epoch)
-        rec =recall_score(labels_epoch , predictions_epoch)
+        pres_avg=precision_score(labels_epoch , predictions_epoch , average = "macro")
+        pres_class=precision_score(labels_epoch , predictions_epoch , average = "micro")
+        # pres_class=precision_score(labels_epoch , predictions_epoch , average = None)
 
+        
+        rec =recall_score(labels_epoch , predictions_epoch , average="macro")
+        rec_class = recall_score(labels_epoch , predictions_epoch , average= "micro")
 
-
+        print(pres_class)
         return {"loss_val_epoch":np.array(loss_epoch),
                 "val_acc":acc,
-                "val_pres":pres , 
-                "val_rec":rec ,
+                "val_pres":[pres_avg , pres_class] , 
+                "val_rec":[rec,rec_class] ,
                 "batch_count":max_epochs_val}
