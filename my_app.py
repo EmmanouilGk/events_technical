@@ -1,3 +1,4 @@
+import fnmatch
 import hydra
 from hydra.utils import instantiate
 import logging
@@ -61,12 +62,20 @@ def my_app(cfg: DictConfig):
                                              label_root="/home/iccs/Desktop/isense/events/intention_prediction/processed_data/new_data/processed_data_03/processed_data/detection_camera1/lane_changes.txt")
                                 ])
     
-    weights = compute_weights(ds = dataset_train,)
+    
+    
+    if os.path.isfile(s:="/home/iccs/Desktop/isense/events/intention_prediction/data/weights_torch/weights_union_prevention.pt"):
+        weights=torch.load(s)
+        print(weights)
+    else: weights = compute_weights(ds = dataset_train,)
 
     print("Final dataset size is {}".format(len(dataset_train)))
 
     # dataloader = instantiate(config = cfg.datasets.prevention_loader)  #recheck
-    dataloader_train = DataLoader(dataset_train , batch_size=1 , collate_fn= collate_fn_padding , shuffle=False , sampler =torch.utils.data.WeightedRandomSampler(weights=weights, num_samples = len(dataset_train),replacement=True))
+    dataloader_train = DataLoader(dataset_train , batch_size=1 , 
+                                  collate_fn= collate_fn_padding , shuffle=False , 
+                                  sampler =torch.utils.data.WeightedRandomSampler(weights=weights, num_samples = len(dataset_train),replacement=True),
+                                  pin_memory=True)
     
     dataloader_val = DataLoader(dataset_val , batch_size=1 , collate_fn= collate_fn_padding , shuffle=True)
     # dataloader_test = DataLoader(dataset_test , batch_size=1 , collate_fn= collate_fn_padding)

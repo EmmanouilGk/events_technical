@@ -55,22 +55,25 @@ def train(*args,**kwargs):
     now = datetime.datetime.now()
     scheduler: torch.optim.lr_scheduler.ExponentialLR = kwargs["scheduler"]
 
-    #load weights for training
-    weights=kwargs["weights"][0]
-    weights = [weights["LK"],weights["LLC"],weights["RLC"],]
+    # #load weights for training
+    # weights=kwargs["weights"]
+    # print(weights)
+    # # weights = [weights["LK"],weights["LLC"],weights["RLC"],]
 
 
-    criterion = torch.nn.CrossEntropyLoss( weight= torch.tensor(data = ( weights[0] , weights[1], weights[2]), dtype=torch.float , device=dev))
+    # criterion = torch.nn.CrossEntropyLoss( weight= torch.tensor(data = ( weights[0] , weights[1], weights[2]), dtype=torch.float , device=dev))
+    criterion=torch.nn.CrossEntropyLoss()
     model=kwargs["model"]
     optimizer=kwargs["optimizer"]
 
     ##update config params
     kwargs.update({"criterion":criterion})
     
-
-   
     writer= kwargs["writer"]
     
+    torch.backends.cudnn.benchmark = True
+
+
     #train and val
     for epoch in  range(max_epochs):
 
@@ -78,6 +81,13 @@ def train(*args,**kwargs):
 
         for i,loss in enumerate(losses_dict["val"]):
             writer.add_scalar(losses_dict["desc"] , loss ,  (epoch-1)*losses_dict["batch_count"] + i)  #plot losses 
+        # writer.add_scalar("Accuracy" , losses_dict["Epoch_mean_Accuracy"]  , epoch)
+        
+        torch.save({'epoch': epoch,
+            'model_state_dict': model.state_dict(),
+            'optimizer_state_dict': optimizer.state_dict(),
+            
+            }, kwargs["model_save_path"])
 
         val_losses_dict = val_one_epoch(*args, **kwargs)  #vla losses dict
 
@@ -100,7 +110,6 @@ def train(*args,**kwargs):
             }, kwargs["model_save_path"])
         
         
-
         #reset datasets for multi-epoch iterations ->change again
         dataset_train = (read_frame_from_iter_train(path_to_video = "/home/iccs/Desktop/isense/events/intention_prediction/processed_data/video_camera1.mp4",
                                                 path_to_label = "/home/iccs/Desktop/isense/events/intention_prediction/processed_data/detection_camera1/lane_changes_preprocessed.txt",
@@ -162,9 +171,12 @@ def train_one_epoch(*args , **kwargs):
             predictions_epoch.append(prediction.detach().cpu().numpy())
             labels_epoch.append(maneuver_type.detach().cpu().numpy())
 
-        acc = np.mean([x == y for x,y in zip(map(lambda x: np.argmax(x) , predictions_epoch) , labels_epoch)])
-        
-        return {"desc":"loss_train_epoch","val":np.array(loss_epoch),"batch_count":max_batches}
+        # Acc = accuracy_score(labels_epoch , predictions_epoch )      
+
+        return {"desc":"loss_train_epoch",
+                "val":np.array(loss_epoch),
+                "batch_count":max_batches,}
+                # "Epoch_mean_Accuracy" : Acc}
 
 @torch.no_grad
 def val_one_epoch(*args , **kwargs)->Dict:

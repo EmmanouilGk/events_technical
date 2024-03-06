@@ -24,7 +24,8 @@ def compute_weights(ds,
            count_lk , count_llc, count_rlc = 0, 0, 0
            for j in tqdm(range(N)):
                 label=ds[j][1]
-                labels.append(label)
+                labels.append(int(label))
+                print(label)
                 if label==0:count_lk+=1
                 if label==1:count_llc+=1
                 if label==2:count_rlc+=1
@@ -305,6 +306,7 @@ class prevention_dataset_val(Dataset):
             
             i=maneuver[5] #assingn next start to end of current manuver
 
+            
             
 
     def __getitem__(self, index) -> Any:
