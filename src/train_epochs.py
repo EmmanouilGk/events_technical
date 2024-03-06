@@ -7,7 +7,7 @@ from torch.utils.tensorboard import SummaryWriter
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-from sklearn.metrics import accuracy_score, precision_score,recall_score
+from sklearn.metrics import accuracy_score, balanced_accuracy_score, precision_score,recall_score
 from ..data.data_loader_utils import collate_fn_padding
 
 from ..data.prevention_data_iter import read_frame_from_iter_train, read_frame_from_iter_val
@@ -103,7 +103,7 @@ def train(*args,**kwargs):
         torch.save({'epoch': epoch,
             'model_state_dict': model.state_dict(),
             'optimizer_state_dict': optimizer.state_dict(),
-            "loss" : losses_dict["loss_train_epoch"][-1],
+            "loss" : losses_dict["desc"][-1],
             }, kwargs["model_save_path"])
 
         val_losses_dict = val_one_epoch(*args, **kwargs)  #vla losses dict
@@ -115,11 +115,18 @@ def train(*args,**kwargs):
                  continue
             if desc=="val_pres":
                 for i in range(2):
-                    writer.add_scalars("Val micro (0=Lk,1=Llc,2=Rlc)" , {"Class {}".format(class_map[i]):val[1][i]},  i)   # add epoch wise acc,pres etc metrics 
+                    writer.add_scalars("Val micro (0=Lk,1=Llc,2=Rlc)" , {"Class {}".format(i):val[1]},  i)   # add epoch wise acc,pres etc metrics 
+                writer.add_scalar("Val Macro" , val[0],  epoch)   # add epoch wise acc,pres etc metrics 
+
+                continue
+            if desc =="val_pres_weighted":
+                for i in range(2):
+                    print(val)
+                    writer.add_scalars("val_pres_weighted" , {"Class {}".format(i):val[1]},  i)   # add epoch wise acc,pres etc metrics 
                 continue
             if desc=="val_rec":
                 for i in range(2):
-                    writer.add_scalars("Rec micro" , {"Class {}".format(class_map[i]):val[1][i]},  i)   # add epoch wise acc,pres etc metrics 
+                    writer.add_scalars("Rec micro" , {"Class {}".format(class_map[i]):val[1]},  i)   # add epoch wise acc,pres etc metrics 
 
                 writer.add_scalar("Rec macro" , val[0],  epoch)   # add epoch wise acc,pres etc metrics 
                 continue
@@ -131,7 +138,6 @@ def train(*args,**kwargs):
 
 
 
-            writer.add_scalar("Val Macro" , val[0],  epoch)   # add epoch wise acc,pres etc metrics 
 
 
         scheduler.step()
@@ -180,8 +186,6 @@ def train_one_epoch(*args , **kwargs):
         predictions_epoch=[]
         labels_epoch=[]
 
-       
-
         for batch_idx , (frames , maneuver_type) in (pbar:=tqdm(enumerate(data_loader))): 
 
             pbar.set_description_str("Train Batch: {}".format(batch_idx))
@@ -204,14 +208,14 @@ def train_one_epoch(*args , **kwargs):
                 max_batches+=1
                 writer.add_scalar("Online batch loss-During update ", loss_epoch[-1] , batch_idx)
 
+
             pbar.set_postfix_str("Batch loss {:0.2f}".format(loss.item()))
 
             predictions_epoch.append(prediction.detach().cpu().numpy())
             labels_epoch.append(maneuver_type.detach().cpu().numpy())
 
-            
-        
-        acc = accuracy_score(labels_epoch , predictions_epoch )      
+
+        acc = accuracy_score(labels_epoch , s:=list(map(lambda x:np.argmax(x) , predictions_epoch))  )  
 
         return {"desc":"loss_train_epoch",
                 "val":np.array(loss_epoch),
@@ -250,7 +254,7 @@ def val_one_epoch(*args , **kwargs)->Dict:
             labels_epoch.append(maneuver_type.detach().cpu().numpy())
 
             loss_epoch.append(loss.item())
-
+       
             pbar.set_postfix_str("Val Batch loss {:0.2f}".format(loss.item()))
 
             max_epochs_val+=1
@@ -261,17 +265,21 @@ def val_one_epoch(*args , **kwargs)->Dict:
 
         
         acc = accuracy_score(labels_epoch , predictions_epoch)
+        bacc = balanced_accuracy_score(labels_epoch , predictions_epoch)
+
         pres_avg=precision_score(labels_epoch , predictions_epoch , average = "macro")
         pres_class=precision_score(labels_epoch , predictions_epoch , average = "micro")
-        # pres_class=precision_score(labels_epoch , predictions_epoch , average = None)
+        pres=precision_score(labels_epoch , predictions_epoch , average = "weighted")
 
-        
         rec =recall_score(labels_epoch , predictions_epoch , average="macro")
         rec_class = recall_score(labels_epoch , predictions_epoch , average= "micro")
+
 
         print(pres_class)
         return {"loss_val_epoch":np.array(loss_epoch),
                 "val_acc":acc,
                 "val_pres":[pres_avg , pres_class] , 
                 "val_rec":[rec,rec_class] ,
-                "batch_count":max_epochs_val}
+                "batch_count":max_epochs_val , 
+                "val_pres_global":pres,
+                "bacc":bacc}
