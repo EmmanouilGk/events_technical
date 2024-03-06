@@ -82,15 +82,28 @@ def train(*args,**kwargs):
         val_losses_dict = val_one_epoch(*args, **kwargs)  #vla losses dict
 
         for i, (desc , val) in enumerate(val_losses_dict.items()):
-            if desc=="loss_val_epoch": 
-                 for i in range(val.shape[0]):
-                    writer.add_scalar("Val Batch_Loss" , val[i] , (epoch-1)*losses_dict["batch_count"] + i)  #plot val loss
-                 continue
-            if desc=="val_pres":
-                for i in range(2):
-                    writer.add_scalars("Val micro" , {"Class {}".format(class_map[i]):val[1][i]},  i)   # add epoch wise acc,pres etc metrics 
+            # if desc=="loss_val_epoch": 
+            #      for i in range(val.shape[0]):
+            #         writer.add_scalar("Val Batch_Loss" , val[i] , (epoch-1)*losses_dict["batch_count"] + i)  #plot val loss
+            #      continue
+            # if desc=="val_pres":
+            #     for i in range(2):
+            #         writer.add_scalars("Val micro" , {"Class {}".format(class_map[i]):val[1][i]},  i)   # add epoch wise acc,pres etc metrics 
 
-                writer.add_scalar("Val macro" , val[0],  epoch)   # add epoch wise acc,pres etc metrics 
+            #     writer.add_scalar("Val macro" , val[0],  epoch)   # add epoch wise acc,pres etc metrics 
+            #     continue
+            # if desc=="val_rec":
+            #     for i in range(2):
+            #         writer.add_scalars("Rec micro" , {"Class {}".format(class_map[i]):val[1][i]},  i)   # add epoch wise acc,pres etc metrics 
+
+            #     writer.add_scalar("Rec macro" , val[0],  epoch)   # add epoch wise acc,pres etc metrics 
+            #     continue
+            
+    
+            print(desc)
+            if desc=="acc":
+                writer.add_scalar(desc , val,  epoch)   # add epoch wise acc,pres etc metrics 
+
 
 
         scheduler.step()
@@ -105,21 +118,6 @@ def train(*args,**kwargs):
             }, kwargs["model_save_path"])
         
         
-
-        #reset datasets for multi-epoch iterations ->change again
-        dataset_train = (preven(path_to_video = "/home/iccs/Desktop/isense/events/intention_prediction/processed_data/video_camera1.mp4",
-                                            path_to_label = "/home/iccs/Desktop/isense/events/intention_prediction/processed_data/detection_camera1/lane_changes_preprocessed.txt",
-                                            prediction_horizon=5,
-                                            splits=(0.8,0.1,0.1)))
-        
-        kwargs["dataloader_train"]=DataLoader(dataset_train , batch_size=1 , collate_fn= collate_fn_padding , )
-        
-        dataset_val = read_frame_from_iter_val(path_to_video = "/home/iccs/Desktop/isense/events/intention_prediction/processed_data/video_camera1.mp4",
-                                                path_to_label = "/home/iccs/Desktop/isense/events/intention_prediction/processed_data/detection_camera1/lane_changes_preprocessed.txt",
-                                                prediction_horizon=5,
-                                                splits=(0.8,0.1,0.1))
-        
-        kwargs["dataloader_val"]=DataLoader(dataset_val , batch_size=1 , collate_fn= collate_fn_padding , )
 
 
 #equiv to logging_utils().tb_writer(train_one_epoch(*args,**kwargs))
@@ -141,7 +139,7 @@ def train_one_epoch(*args , **kwargs):
         labels_epoch=[]
 
         _debug_counter=0
-        _debug_max=1
+        _debug_max=5
 
         for batch_idx , (frames , maneuver_type) in (pbar:=tqdm(enumerate(data_loader))): 
 
@@ -174,6 +172,7 @@ def train_one_epoch(*args , **kwargs):
             if _debug_counter==_debug_max:break
 
         acc = np.mean([x == y for x,y in zip(map(lambda x: np.argmax(x) , predictions_epoch) , labels_epoch)])
+        input(acc)
         
         return {"desc":"loss_train_epoch","val":np.array(loss_epoch),"batch_count":max_batches}
 
@@ -191,7 +190,7 @@ def val_one_epoch(*args , **kwargs)->Dict:
         predictions_epoch = []
         labels_epoch = []
         max_epochs_val = 0
-
+        _debu_c = 0 
         
         for batch_idx , (frames , maneuver_type) in (pbar:=tqdm(enumerate(data_loader))): 
             pbar.set_description_str("Val Batch: {}".format(batch_idx))
@@ -214,6 +213,9 @@ def val_one_epoch(*args , **kwargs)->Dict:
 
             max_epochs_val+=1
 
+            _debu_c+=1
+            if _debu_c==3:break
+
         #convert to int categorical labels
         predictions_epoch=list(map(lambda x: np.argmax(x) , predictions_epoch))
         labels_epoch=list(map(lambda x: int(x) , labels_epoch))
@@ -223,10 +225,10 @@ def val_one_epoch(*args , **kwargs)->Dict:
         
         acc = accuracy_score(labels_epoch , predictions_epoch)
         pres_avg=precision_score(labels_epoch , predictions_epoch , average = "macro")
-        pres_class=precision_score(labels_epoch , predictions_epoch , average = None)
+        pres_class=precision_score(labels_epoch , predictions_epoch , average = "micro")
         
         rec =recall_score(labels_epoch , predictions_epoch , average="macro")
-        rec_class = recall_score(labels_epoch , predictions_epoch , average= None)
+        rec_class = recall_score(labels_epoch , predictions_epoch , average= "micro")
 
         print(pres_class)
         return {"loss_val_epoch":np.array(loss_epoch),
