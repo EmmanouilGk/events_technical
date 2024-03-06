@@ -1,3 +1,4 @@
+import fnmatch
 import hydra
 from hydra.utils import instantiate
 import logging
@@ -6,14 +7,14 @@ import datetime
 import os
 from os.path import join
 from torch.utils.data import DataLoader
-from torch.utils.data import ChainDataset
+from torch.utils.data import ChainDataset,ConcatDataset
 
 from intention_prediction.data.prevention_data_iter import *
 from intention_prediction.data.preprocess_labels import _preprocess_label_file
 from intention_prediction.src.train_epochs import *
 from intention_prediction.models.load_resnet import *
 from intention_prediction.data.data_loader_utils import collate_fn_padding
-from intention_prediction.data.video_segment_dataset import prevention_dataset_val , prevention_dataset_train
+from intention_prediction.data.video_segment_dataset import prevention_dataset_val , prevention_dataset_train, construct_ds, compute_weights
 
 from itertools import cycle
 
@@ -38,6 +39,11 @@ def my_app(cfg: DictConfig):
     dataset_train = prevention_dataset_train(root= "/home/iccs/Desktop/isense/events/intention_prediction/processed_data/segmented_frames",
                                              label_root="/home/iccs/Desktop/isense/events/intention_prediction/processed_data/detection_camera1/lane_changes.txt")
 
+    
+
+    weights=dataset_train.get_weights(),
+
+
     dataset_val = prevention_dataset_val(root= "/home/iccs/Desktop/isense/events/intention_prediction/processed_data/segmented_frames",
                                              label_root="/home/iccs/Desktop/isense/events/intention_prediction/processed_data/detection_camera1/lane_changes.txt")
 
@@ -48,9 +54,29 @@ def my_app(cfg: DictConfig):
     ##print dataset statistics
     print(repr(dataset_train))
 
+    dataset_train = ConcatDataset([prevention_dataset_train(root= "/home/iccs/Desktop/isense/events/intention_prediction/processed_data/segmented_frames",
+                                             label_root="/home/iccs/Desktop/isense/events/intention_prediction/processed_data/detection_camera1/lane_changes.txt"),
+                                prevention_dataset_train(root= "/home/iccs/Desktop/isense/events/intention_prediction/processed_data/new_data/processed_data_02/segmented_frames",
+                                             label_root="/home/iccs/Desktop/isense/events/intention_prediction/processed_data/new_data/processed_data_02/processed_data/detection_camera1/lane_changes.txt"),
+                                prevention_dataset_train(root= "/home/iccs/Desktop/isense/events/intention_prediction/processed_data/new_data/processed_data_03/segmented_frames",
+                                             label_root="/home/iccs/Desktop/isense/events/intention_prediction/processed_data/new_data/processed_data_03/processed_data/detection_camera1/lane_changes.txt")
+                                ])
+    
+    
+    
+    if os.path.isfile(s:="/home/iccs/Desktop/isense/events/intention_prediction/data/weights_torch/weights_union_prevention.pt"):
+        weights=torch.load(s)
+        print(weights)
+    else: weights = compute_weights(ds = dataset_train,)
+
+    print("Final dataset size is {}".format(len(dataset_train)))
 
     # dataloader = instantiate(config = cfg.datasets.prevention_loader)  #recheck
-    dataloader_train = DataLoader(dataset_train , batch_size=1 , collate_fn= collate_fn_padding , shuffle=True)
+    dataloader_train = DataLoader(dataset_train , batch_size=1 , 
+                                  collate_fn= collate_fn_padding , shuffle=False , 
+                                  sampler =torch.utils.data.WeightedRandomSampler(weights=weights, num_samples = len(dataset_train),replacement=True),
+                                  pin_memory=True)
+    
     dataloader_val = DataLoader(dataset_val , batch_size=1 , collate_fn= collate_fn_padding , shuffle=True)
     # dataloader_test = DataLoader(dataset_test , batch_size=1 , collate_fn= collate_fn_padding)
 
@@ -72,11 +98,10 @@ def my_app(cfg: DictConfig):
 
     dev = torch.device("cuda:0")
 
-    weights=dataset_train.get_weights(),
-
     writer = SummaryWriter(log_dir= "/home/iccs/Desktop/isense/events/intention_prediction/logs/run_{}".format(now:=datetime.datetime.now()) )
     
-    
+        
+
 
     train(cfg , writer=writer,
           dataloader_train = dataloader_train , 
@@ -89,9 +114,10 @@ def my_app(cfg: DictConfig):
           scheduler = scheduler,
           epochs = epochs,
           dev= dev,
-          model_save_path="/home/iccs/Desktop/isense/events/intention_prediction/models/weights/train_01_03_04.pt",
+          model_save_path="/home/iccs/Desktop/isense/events/intention_prediction/models/weights/train_01_03_04_debug.pt",
           num_iterations_gr_accum = 16,
-          log_dict = {"lr":0.003})
+          log_dict = {"lr":0.003},
+          load_saved_model =None)
     
     # test(cfg , dataloader_test , model , dev)
 
