@@ -66,7 +66,7 @@ def train(*args,**kwargs):
 
     ##update config params
     kwargs.update({"criterion":criterion})
-    
+    class_map=dict({0:"LK",1:"LLC",2:"RLC"})
 
    
     writer= kwargs["writer"]
@@ -86,12 +86,17 @@ def train(*args,**kwargs):
                  for i in range(val.shape[0]):
                     writer.add_scalar("Val Batch_Loss" , val[i] , (epoch-1)*losses_dict["batch_count"] + i)  #plot val loss
                  continue
-            
-            writer.add_scalar(desc , val,  epoch)   # add epoch wise acc,pres etc metrics 
+            if desc=="val_pres":
+                for i in range(2):
+                    writer.add_scalars("Val micro" , {"Class {}".format(class_map[i]):val[1][i]},  i)   # add epoch wise acc,pres etc metrics 
+
+                writer.add_scalar("Val macro" , val[0],  epoch)   # add epoch wise acc,pres etc metrics 
+
 
         scheduler.step()
 
-        writer.addhparams({"lr" , scheduler.get_last_lr() } , {"loss_mean_val":np.mean(val_losses_dict["loss_val_epoch"])})
+        # writer.add_hparams({"lr" : scheduler.get_last_lr() } ,
+        #                     {"loss_mean_val":np.mean(val_losses_dict["loss_val_epoch"])})
 
         torch.save({'epoch': epoch,
             'model_state_dict': model.state_dict(),
@@ -102,7 +107,7 @@ def train(*args,**kwargs):
         
 
         #reset datasets for multi-epoch iterations ->change again
-        dataset_train = (read_frame_from_iter_train(path_to_video = "/home/iccs/Desktop/isense/events/intention_prediction/processed_data/video_camera1.mp4",
+        dataset_train = (preven(path_to_video = "/home/iccs/Desktop/isense/events/intention_prediction/processed_data/video_camera1.mp4",
                                             path_to_label = "/home/iccs/Desktop/isense/events/intention_prediction/processed_data/detection_camera1/lane_changes_preprocessed.txt",
                                             prediction_horizon=5,
                                             splits=(0.8,0.1,0.1)))
@@ -135,6 +140,9 @@ def train_one_epoch(*args , **kwargs):
         predictions_epoch=[]
         labels_epoch=[]
 
+        _debug_counter=0
+        _debug_max=1
+
         for batch_idx , (frames , maneuver_type) in (pbar:=tqdm(enumerate(data_loader))): 
 
             pbar.set_description_str("Train Batch: {}".format(batch_idx))
@@ -162,6 +170,9 @@ def train_one_epoch(*args , **kwargs):
             predictions_epoch.append(prediction.detach().cpu().numpy())
             labels_epoch.append(maneuver_type.detach().cpu().numpy())
 
+            _debug_counter+=1
+            if _debug_counter==_debug_max:break
+
         acc = np.mean([x == y for x,y in zip(map(lambda x: np.argmax(x) , predictions_epoch) , labels_epoch)])
         
         return {"desc":"loss_train_epoch","val":np.array(loss_epoch),"batch_count":max_batches}
@@ -181,7 +192,7 @@ def val_one_epoch(*args , **kwargs)->Dict:
         labels_epoch = []
         max_epochs_val = 0
 
-
+        
         for batch_idx , (frames , maneuver_type) in (pbar:=tqdm(enumerate(data_loader))): 
             pbar.set_description_str("Val Batch: {}".format(batch_idx))
             
@@ -211,13 +222,15 @@ def val_one_epoch(*args , **kwargs)->Dict:
         input(labels_epoch)
         
         acc = accuracy_score(labels_epoch , predictions_epoch)
-        pres=precision_score(labels_epoch , predictions_epoch)
-        rec =recall_score(labels_epoch , predictions_epoch)
+        pres_avg=precision_score(labels_epoch , predictions_epoch , average = "macro")
+        pres_class=precision_score(labels_epoch , predictions_epoch , average = None)
+        
+        rec =recall_score(labels_epoch , predictions_epoch , average="macro")
+        rec_class = recall_score(labels_epoch , predictions_epoch , average= None)
 
-
-
+        print(pres_class)
         return {"loss_val_epoch":np.array(loss_epoch),
                 "val_acc":acc,
-                "val_pres":pres , 
-                "val_rec":rec ,
+                "val_pres":[pres_avg , pres_class] , 
+                "val_rec":[rec,rec_class] ,
                 "batch_count":max_epochs_val}
