@@ -100,7 +100,9 @@ def my_app(cfg: DictConfig):
 
     writer = SummaryWriter(log_dir= "/home/iccs/Desktop/isense/events/intention_prediction/logs/run_{}".format(now:=datetime.datetime.now()) )
     
-    
+        
+
+
     train(cfg , writer=writer,
           dataloader_train = dataloader_train , 
           dataloader_val = dataloader_val,
@@ -114,7 +116,8 @@ def my_app(cfg: DictConfig):
           dev= dev,
           model_save_path="/home/iccs/Desktop/isense/events/intention_prediction/models/weights/train_01_03_04.pt",
           num_iterations_gr_accum = 16,
-          log_dict = {"lr":0.003})
+          log_dict = {"lr":0.003},
+          load_saved_model ="/home/iccs/Desktop/isense/events/intention_prediction/models/weights/train_01_03_04.pt")
     
     # test(cfg , dataloader_test , model , dev)
 

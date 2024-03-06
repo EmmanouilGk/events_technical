@@ -64,7 +64,7 @@ def train(*args,**kwargs):
     # criterion = torch.nn.CrossEntropyLoss( weight= torch.tensor(data = ( weights[0] , weights[1], weights[2]), dtype=torch.float , device=dev))
     criterion=torch.nn.CrossEntropyLoss()
     model=kwargs["model"]
-    optimizer=kwargs["optimizer"]
+    
 
     ##update config params
     kwargs.update({"criterion":criterion})
@@ -77,9 +77,21 @@ def train(*args,**kwargs):
     
     torch.backends.cudnn.benchmark = True
 
+    optimizer=kwargs["optimizer"]
+    current_epoch=0
+    if kwargs["load_saved_model"]:
+        print("Loading saved model at path {}".format(kwargs["load_saved_model"]))
+        checkpoint = torch.load(kwargs["load_saved_model"])
+        
+        model.load_state_dict(checkpoint["model_state_dict"])
+        model=model.to(dev)
+        optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+        current_epoch = checkpoint["epoch"]
+        
     
+
     #train and val
-    for epoch in  range(max_epochs):
+    for epoch in  range(0 , max_epochs-current_epoch):
 
         losses_dict = train_one_epoch(*args , **kwargs)   #train losses dict
 
@@ -91,7 +103,7 @@ def train(*args,**kwargs):
         torch.save({'epoch': epoch,
             'model_state_dict': model.state_dict(),
             'optimizer_state_dict': optimizer.state_dict(),
-            
+            "loss" : losses_dict["loss_train_epoch"][-1],
             }, kwargs["model_save_path"])
 
         val_losses_dict = val_one_epoch(*args, **kwargs)  #vla losses dict
@@ -105,6 +117,19 @@ def train(*args,**kwargs):
                 for i in range(2):
                     writer.add_scalars("Val micro (0=Lk,1=Llc,2=Rlc)" , {"Class {}".format(class_map[i]):val[1][i]},  i)   # add epoch wise acc,pres etc metrics 
                 continue
+            if desc=="val_rec":
+                for i in range(2):
+                    writer.add_scalars("Rec micro" , {"Class {}".format(class_map[i]):val[1][i]},  i)   # add epoch wise acc,pres etc metrics 
+
+                writer.add_scalar("Rec macro" , val[0],  epoch)   # add epoch wise acc,pres etc metrics 
+                continue
+        
+            if desc=="acc":
+                writer.add_scalar(desc , val,  epoch)   # add epoch wise acc,pres etc metrics 
+
+
+
+
 
             writer.add_scalar("Val Macro" , val[0],  epoch)   # add epoch wise acc,pres etc metrics 
 
@@ -185,7 +210,7 @@ def train_one_epoch(*args , **kwargs):
             labels_epoch.append(maneuver_type.detach().cpu().numpy())
 
             
-
+        
         acc = accuracy_score(labels_epoch , predictions_epoch )      
 
         return {"desc":"loss_train_epoch",
