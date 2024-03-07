@@ -43,6 +43,33 @@ class logging_utils():
         self._current_epoch = value
 
 
+def _write_val_values(val_losses_dict , writer , epoch , losses_dict ):
+      for i, (desc , val) in enumerate(val_losses_dict.items()):
+            if desc=="loss_val_epoch": 
+                 for i in range(val.shape[0]):
+                    writer.add_scalar("Val Batch_Loss" , val[i] , (epoch-1)*losses_dict["batch_count"] + i)  #plot val loss
+                 continue
+            if desc=="val_pres":
+                for i in range(2):
+                    writer.add_scalars("Val micro (0=Lk,1=Llc,2=Rlc)" , {"Class {}".format(i):val[1]},  i)   # add epoch wise acc,pres etc metrics 
+                writer.add_scalar("Val Macro" , val[0],  epoch)   # add epoch wise acc,pres etc metrics 
+
+                continue
+            if desc =="val_pres_weighted":
+                for i in range(2):
+                    print(val)
+                    writer.add_scalars("val_pres_weighted" , {"Class {}".format(i):val[1]},  i)   # add epoch wise acc,pres etc metrics 
+                continue
+            if desc=="val_rec":
+                for i in range(2):
+                    writer.add_scalars("Rec micro" , {"Class {}".format(i):val[1]},  i)   # add epoch wise acc,pres etc metrics 
+
+                writer.add_scalar("Rec macro" , val[0],  epoch)   # add epoch wise acc,pres etc metrics 
+                continue
+        
+            if desc=="acc":
+                writer.add_scalar(desc , val,  epoch)   # add epoch wise acc,pres etc metrics 
+
 
 def train(*args,**kwargs):
     """
@@ -107,38 +134,9 @@ def train(*args,**kwargs):
             }, kwargs["model_save_path"])
 
         val_losses_dict = val_one_epoch(*args, **kwargs)  #vla losses dict
-
-        for i, (desc , val) in enumerate(val_losses_dict.items()):
-            if desc=="loss_val_epoch": 
-                 for i in range(val.shape[0]):
-                    writer.add_scalar("Val Batch_Loss" , val[i] , (epoch-1)*losses_dict["batch_count"] + i)  #plot val loss
-                 continue
-            if desc=="val_pres":
-                for i in range(2):
-                    writer.add_scalars("Val micro (0=Lk,1=Llc,2=Rlc)" , {"Class {}".format(i):val[1]},  i)   # add epoch wise acc,pres etc metrics 
-                writer.add_scalar("Val Macro" , val[0],  epoch)   # add epoch wise acc,pres etc metrics 
-
-                continue
-            if desc =="val_pres_weighted":
-                for i in range(2):
-                    print(val)
-                    writer.add_scalars("val_pres_weighted" , {"Class {}".format(i):val[1]},  i)   # add epoch wise acc,pres etc metrics 
-                continue
-            if desc=="val_rec":
-                for i in range(2):
-                    writer.add_scalars("Rec micro" , {"Class {}".format(class_map[i]):val[1]},  i)   # add epoch wise acc,pres etc metrics 
-
-                writer.add_scalar("Rec macro" , val[0],  epoch)   # add epoch wise acc,pres etc metrics 
-                continue
         
-            if desc=="acc":
-                writer.add_scalar(desc , val,  epoch)   # add epoch wise acc,pres etc metrics 
-
-
-
-
-
-
+        _write_val_values(val_losses_dict=val_losses_dict , writer=writer,epoch=epoch,losses_dict=losses_dict)
+      
 
         scheduler.step()
 
@@ -151,27 +149,11 @@ def train(*args,**kwargs):
             
             }, kwargs["model_save_path"])
         
-        
-        # #reset datasets for multi-epoch iterations ->change again
-        # dataset_train = (preven(path_to_video = "/home/iccs/Desktop/isense/events/intention_prediction/processed_data/video_camera1.mp4",
-        #                                     path_to_label = "/home/iccs/Desktop/isense/events/intention_prediction/processed_data/detection_camera1/lane_changes_preprocessed.txt",
-        #                                     prediction_horizon=5,
-        #                                     splits=(0.8,0.1,0.1)))
-        
-        # kwargs["dataloader_train"]=DataLoader(dataset_train , batch_size=1 , collate_fn= collate_fn_padding , )
-        
-        # dataset_val = read_frame_from_iter_val(path_to_video = "/home/iccs/Desktop/isense/events/intention_prediction/processed_data/video_camera1.mp4",
-        #                                         path_to_label = "/home/iccs/Desktop/isense/events/intention_prediction/processed_data/detection_camera1/lane_changes_preprocessed.txt",
-        #                                         prediction_horizon=5,
-        #                                         splits=(0.8,0.1,0.1))
-        
-        # kwargs["dataloader_val"]=DataLoader(dataset_val , batch_size=1 , collate_fn= collate_fn_padding , )
 
-
-#equiv to logging_utils().tb_writer(train_one_epoch(*args,**kwargs))
-# @logging_utils().tb_writer():
 def train_one_epoch(*args , **kwargs):
-
+        """
+        train batches logic
+        """
         data_loader = kwargs["dataloader_train"]
         dev=kwargs["dev"]
         model = kwargs["model"].to(dev)

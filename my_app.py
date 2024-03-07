@@ -15,7 +15,7 @@ from intention_prediction.src.train_epochs import *
 from intention_prediction.src.test import *
 from intention_prediction.models.load_resnet import *
 from intention_prediction.data.data_loader_utils import collate_fn_padding
-from intention_prediction.data.video_segment_dataset import (prevention_dataset_val , prevention_dataset_train, 
+from intention_prediction.data.video_segment_dataset import (_get_semented_data_paths, prevention_dataset_val , prevention_dataset_train, 
                                                                construct_ds, compute_weights , prevention_dataset_test)
 
 from itertools import cycle
@@ -55,13 +55,17 @@ def my_app(cfg: DictConfig):
     #                                            splits=(0.8,0.1,0.1))
     ##print dataset statistics
     print(repr(dataset_train))
-
-    dataset_train = ConcatDataset([prevention_dataset_train(root= "/home/iccs/Desktop/isense/events/intention_prediction/processed_data/segmented_frames",
-                                             label_root="/home/iccs/Desktop/isense/events/intention_prediction/processed_data/detection_camera1/lane_changes.txt"),
+    _root_dir = "/home/iccs/Desktop/isense/events/intention_prediction/processed_data/"
+    _dataset_files = _get_semented_data_paths()
+    dataset_train = ConcatDataset([
+                                    prevention_dataset_train(root= "/home/iccs/Desktop/isense/events/intention_prediction/processed_data/segmented_frames",
+                                             label_root="/home/iccs/Desktop/isense/events/intention_prediction/processed_data/detection_camera1/lane_changes.txt"),  
                                     prevention_dataset_train(root= "/home/iccs/Desktop/isense/events/intention_prediction/processed_data/new_data/processed_data_02/segmented_frames",
                                                 label_root="/home/iccs/Desktop/isense/events/intention_prediction/processed_data/new_data/processed_data_02/processed_data/detection_camera1/lane_changes.txt"),
                                     prevention_dataset_train(root= "/home/iccs/Desktop/isense/events/intention_prediction/processed_data/new_data/processed_data_03/segmented_frames",
-                                                label_root="/home/iccs/Desktop/isense/events/intention_prediction/processed_data/new_data/processed_data_03/processed_data/detection_camera1/lane_changes.txt")
+                                                label_root="/home/iccs/Desktop/isense/events/intention_prediction/processed_data/new_data/processed_data_03/processed_data/detection_camera1/lane_changes.txt"),
+                                    prevention_dataset_train(root= join( _root_dir , "processed_data/new_data/recording_05/drive_03/processed_data/segmented_frames"),
+                                                label_root="/home/iccs/Desktop/isense/events/intention_prediction/processed_data/new_data/recording_05/drive_03/processed_data/detection_camera1/lane_changes.txt") #r05_d03
                                     ])
     
     dataset_test = prevention_dataset_test(root= "/home/iccs/Desktop/isense/events/intention_prediction/processed_data/segmented_test_frames",
@@ -72,7 +76,6 @@ def my_app(cfg: DictConfig):
         weights=torch.load(s)
         print(weights)
     else: weights , class_w = compute_weights(ds = dataset_train,)
-    input(class_w)
     print("Final dataset size is {}".format(len(dataset_train)))
 
     # dataloader = instantiate(config = cfg.datasets.prevention_loader)  #recheck
@@ -119,7 +122,7 @@ def my_app(cfg: DictConfig):
             scheduler = scheduler,
             epochs = epochs,
             dev= dev,
-            model_save_path="/home/iccs/Desktop/isense/events/intention_prediction/models/weights/train_01_03_04higher_res.pt",
+            model_save_path="/home/iccs/Desktop/isense/events/intention_prediction/models/weights/train_01_03_05higher_res_centerCrop.pt",
             num_iterations_gr_accum = 16,
             log_dict = {"lr":0.003},
             load_saved_model ="/home/iccs/Desktop/isense/events/intention_prediction/models/weights/train_01_03_04.pt")
@@ -131,7 +134,7 @@ def my_app(cfg: DictConfig):
         model = model , 
         epochs = epochs,
         dev= dev,
-        load_saved_model ="/home/iccs/Desktop/isense/events/intention_prediction/models/weights/train_01_03_04_higher_res.pt")
+        load_saved_model ="/home/iccs/Desktop/isense/events/intention_prediction/models/weights/train_01_03_04higher_res_centerCrop.pt")
 
 @torch.no_grad()
 def construct_inference_video(

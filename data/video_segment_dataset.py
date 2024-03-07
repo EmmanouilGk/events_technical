@@ -1,14 +1,16 @@
 import os
-from typing import Any
+from typing import Any, List, Tuple
 import cv2
 import sys
 import torch
 from torch.utils.data import Dataset, ConcatDataset
 from os.path import join
 from glob import glob
-from torchvision.transforms import Compose , Resize,  ToTensor
+from torchvision.transforms import Compose , Resize,  ToTensor , CenterCrop
 import fnmatch
 from ..conf.conf_py import _PADDED_FRAMES
+
+from torchvision.transforms.v2 import ToImage
 
 from tqdm import tqdm
 
@@ -62,22 +64,29 @@ def _calculate_weigths_classes(maneuvers , lk):
             "RLC": w_rlc,
             "LK": w_lk}
 
-def _segment_video(src="/home/iccs/Desktop/isense/events/intention_prediction/processed_data/video_camera1.mp4",
-                   dstp = "/home/iccs/Desktop/isense/events/intention_prediction/processed_data/segmented_frames/",
+def _segment_video(
                    **kwargs):
     
     if kwargs["data_path"]:
         for i, src in enumerate(kwargs["data_path"]):
-            src = src[1]
-            i=i+2
-            dstp =  "/home/iccs/Desktop/isense/events/intention_prediction/processed_data/"
-            if not os.path.isdir(join(dstp,"segmented_test_frames")):os.mkdir(join(dstp,"segmented_test_frames"))
-            dstp = join(dstp,"segmented_test_frames")
+            video = src[1]
+            processed_data = src[0]
+            i=i+2       
+            input(processed_data)
+            dstp =  os.path.abspath(join(processed_data, os.pardir))
+            print(dstp)
+            
+            if not os.path.isdir(join(dstp,"segmented_frames")):os.mkdir(join(dstp,"segmented_frames"))
+
+            # dstp = join(dstp,"segmented_frames")
+
             print(src)
-            cap = cv2.VideoCapture(src)
+            print(dstp)
+
+            cap = cv2.VideoCapture(video)
             frame_idx=0
             with tqdm(total=cap.get(cv2.CAP_PROP_FRAME_COUNT)) as pbar:
-                pbar.set_description_str("processing video-labels {}".format(os.path.basename(src)))
+                pbar.set_description_str("processing video-labels {}".format(os.path.basename(video)))
                 while True:
                     if cap.isOpened():
                         ret,frame = cap.read()
@@ -147,9 +156,9 @@ class prevention_dataset_train(Dataset):
                  root:str,
                  label_root:str) -> None:
         super().__init__()
-        self.H = 400
-        self.W = 400
-        self.transform = Compose([ ToTensor() , Resize((self.H,self.W)) ]) #transfor for each read frame
+        self.H = 650
+        self.W = 650
+        self.transform = Compose([ ToImage() , CenterCrop((self.H,self.W)) ]) #transfor for each read frame
 
         self.data=[]
         for video_frame_srcp in sorted(glob(join(root,".png"))):
@@ -228,10 +237,13 @@ class prevention_dataset_train(Dataset):
             
             frame_stack = [cv2.imread(x) for x in segment_paths]
 
+            # cv2.imwrite("/home/iccs/Desktop/isense/events/intention_prediction/example_pic2_01.png" , frame_stack[0])
+            # input("waiting")
+
             frame_tensor = torch.stack([self.transform(x) for x in frame_stack] , dim=1)
             
 
-            # img=self.transform(cv2.imread(segment_paths[0])).cpu().permute((1,2,0)).numpy()
+            img=self.transform(cv2.imread(segment_paths[0])).cpu().permute((1,2,0)).numpy()
            
             # cv2.imwrite("/home/iccs/Desktop/isense/events/intention_prediction/example_pic2.png" , img)
             # input("waiting")
@@ -242,6 +254,7 @@ class prevention_dataset_train(Dataset):
             assert frame_tensor.size(2) == self.H
             assert frame_tensor.size(3) == self.W
 
+            frame_tensor = torch.tensor(frame_tensor, dtype = torch.float)
             label_tensor = torch.tensor(self.class_map[label] , dtype = torch.long)
 
             return frame_tensor , label_tensor
@@ -270,8 +283,8 @@ class prevention_dataset_val(Dataset):
                  label_root,
                  ) -> None:
         super().__init__()
-        self.H = 256
-        self.W = 256
+        self.H = 600
+        self.W = 600
         self.transform = Compose([ ToTensor() , Resize((self.H,self.W)) ]) #transfor for each read frame
 
         self.data=[]
@@ -489,7 +502,13 @@ class union_prevention(prevention_dataset_train , Dataset):
     def __init__(self):
         super(union_prevention , self).__init__()
 
-
+def _get_semented_data_paths()->List[Tuple]:
+    _root_dir= "/home/iccs/Desktop/isense/events/intention_prediction/processed_data/new_data/"
+    paths=[]
+    for recording in os.listdir(_root_dir):
+        for drive in os.listdir(join(_root_dir,recording,drive)):
+            paths.append((join(_root_dir , recording, drive , "processed_data") , join(_root_dir , recording, drive , "video_camera1.mp4")))
+    return paths
 
 if __name__=="__main__":
     # data_labels_path = [
@@ -498,6 +517,9 @@ if __name__=="__main__":
     #                     ("/home/iccs/Desktop/isense/events/intention_prediction/processed_data/new_data/processed_data_04", "/home/iccs/Desktop/isense/events/intention_prediction/processed_data/new_data/processed_data_04/video_camera1.mp4"),
     #                     # ("/home/iccs/Desktop/isense/events/intention_prediction/processed_data/new_data/processed_data_05", "/home/iccs/Desktop/isense/events/intention_prediction/processed_data/new_data/processed_data_05/'video_camera1(4).mp4'")
     #                     ]
-    data_labels_path = [("/home/iccs/Desktop/isense/events/intention_prediction/processed_data/new_data/recording_04/drive_03/processed_data/",
-                        "/home/iccs/Desktop/isense/events/intention_prediction/processed_data/new_data/recording_04/drive_03/video_camera1.mp4")]
+
+    # dirs = 
+
+    data_labels_path = [("/home/iccs/Desktop/isense/events/intention_prediction/processed_data/new_data/recording_05/drive_03/processed_data/",
+                        "/home/iccs/Desktop/isense/events/intention_prediction/processed_data/new_data/recording_05/drive_03/r5_d3_video.mp4")]
     _segment_video(data_path = data_labels_path)
