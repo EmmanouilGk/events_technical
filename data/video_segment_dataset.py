@@ -1,6 +1,7 @@
 import os
 from typing import Any, List, Tuple
 import cv2
+import math
 import sys
 import torch
 from torch.utils.data import Dataset, ConcatDataset
@@ -82,7 +83,7 @@ def _segment_video(
 
             print(src)
             print(dstp)
-
+            dstp = join(dstp,"segmented_frames")
             cap = cv2.VideoCapture(video)
             frame_idx=0
             with tqdm(total=cap.get(cv2.CAP_PROP_FRAME_COUNT)) as pbar:
@@ -158,6 +159,7 @@ class prevention_dataset_train(Dataset):
         super().__init__()
         self.H = 650
         self.W = 650
+
         self.transform = Compose([ ToImage() , CenterCrop((self.H,self.W)) ]) #transfor for each read frame
 
         self.data=[]
@@ -168,8 +170,11 @@ class prevention_dataset_train(Dataset):
         self.class_map = {"LK":0, "LLC":1, "RLC":2}
 
         #assign lane change clases
+
+        self.train_split = math.floor(len(self.labels)*0.8)
+
         
-        self.labels = self.labels[:57]#train split
+        self.labels = self.labels[:self.train_split]#train split
    
         for maneuver_info in self.labels:
             lane_start = maneuver_info[3]
@@ -223,14 +228,20 @@ class prevention_dataset_train(Dataset):
             #         if frame_path in range(maneuver_info[5] - maneuver_info[4]):
                 
             self.weights=_calculate_weigths_classes(maneuvers=self.labels, lk=lk_counter)
+
         self.lane_keep_counter,self.lane_change_right_counter,self.lane_change_left_counter=0,0,0
         for item in self.data:
             if item[1]=="LK":self.lane_keep_counter+=1
             elif item[1]=="LLC":self.lane_change_right_counter+=1
             elif item[1]=="RLC":self.lane_change_left_counter+=1
             print("Currently have {} lane keep, {} left lane change , {} right lane change".format(self.lane_keep_counter,self.lane_change_left_counter,self.lane_change_right_counter))
-        
 
+
+        
+    def _print_stat(self):
+        return "LK,LLC,RLC: {}/ {} / {}".format(self.lane_keep_counter,self.lane_change_right_counter,self.lane_change_left_counter)
+
+        
 
     def __getitem__(self, index) -> Any:
             segment_paths , label = self.data[index]
@@ -261,6 +272,7 @@ class prevention_dataset_train(Dataset):
         
         
     def __len__(self):
+        
         return len(self.data)
     
 
@@ -295,8 +307,9 @@ class prevention_dataset_val(Dataset):
         self.class_map = {"LK":0, "LLC":1, "RLC":2}
 
         #assign lane change clases
+        self.val_split = math.floor(len(self.labels)*0.8)-1
 
-        self.labels = self.labels[57 - 1:65]#train split 57 first maneuver-but need to assign last frame of previeous maneuver to set the index for lane keep in between data
+        self.labels = self.labels[self.val_split:]#train split 57 first maneuver-but need to assign last frame of previeous maneuver to set the index for lane keep in between data
    
 
         for maneuver_info in self.labels:
@@ -317,6 +330,7 @@ class prevention_dataset_val(Dataset):
 
 
         #assign lane keep clases
+       
         i=self.labels[0][5]
         
           #assign lane keep clases
@@ -352,6 +366,15 @@ class prevention_dataset_val(Dataset):
                         
         #     for maneuver_info in self.labels:
         #         if frame_path in range(maneuver_info[5] - maneuver_info[4]):
+            self.lane_keep_counter,self.lane_change_right_counter,self.lane_change_left_counter=0,0,0
+        for item in self.data:
+            if item[1]=="LK":self.lane_keep_counter+=1
+            elif item[1]=="LLC":self.lane_change_right_counter+=1
+            elif item[1]=="RLC":self.lane_change_left_counter+=1
+            print("Currently have {} lane keep, {} left lane change , {} right lane change".format(self.lane_keep_counter,self.lane_change_left_counter,self.lane_change_right_counter))
+        
+    def _print_stat(self):
+        return "LK,LLC,RLC: {}/ {} / {}".format(self.lane_keep_counter,self.lane_change_right_counter,self.lane_change_left_counter)
 
 
     def __getitem__(self, index) -> Any:
@@ -500,13 +523,29 @@ def construct_ds():
 
 class union_prevention(prevention_dataset_train , Dataset):
     def __init__(self):
-        super(union_prevention , self).__init__()
+        # super(union_prevention , self).__init__()
+
+        ds1=prevention_dataset_train(root= "/home/iccs/Desktop/isense/events/intention_prediction/processed_data/segmented_frames",
+                                label_root="/home/iccs/Desktop/isense/events/intention_prediction/processed_data/detection_camera1/lane_changes.txt")
+        
+        ds2=prevention_dataset_train(root= "/home/iccs/Desktop/isense/events/intention_prediction/processed_data/new_data/processed_data_02/segmented_frames",
+                                                label_root="/home/iccs/Desktop/isense/events/intention_prediction/processed_data/new_data/processed_data_02/processed_data/detection_camera1/lane_changes.txt")
+        ds3=prevention_dataset_train(root= "/home/iccs/Desktop/isense/events/intention_prediction/processed_data/new_data/processed_data_03/segmented_frames",
+                                                label_root="/home/iccs/Desktop/isense/events/intention_prediction/processed_data/new_data/processed_data_03/processed_data/detection_camera1/lane_changes.txt")
+        ds4=prevention_dataset_train(root= "/home/iccs/Desktop/isense/events/intention_prediction/processed_data/new_data/recording_05/drive_03/segmented_frames"
+                                                ,label_root="/home/iccs/Desktop/isense/events/intention_prediction/processed_data/new_data/recording_05/drive_03/processed_data/detection_camera1/lane_changes.txt") #r05_d03
+        
+        input(len(ds4))
+        
+        print("Train Dataset size is:\nDs1(rec01_01):{}\nDs2(rec02_01):{}\nDs3(rec03_01):{}\nDs4(rec05_03):{}\n".format(len(ds1),len(ds2),len(ds3),len(ds4)))
+        print("Classes Ds1{}\nDs2{}\nDs3{}\nDs4{}\n".format(ds1._print_stat(),ds2._print_stat(),ds3._print_stat(),ds4._print_stat()))
+        input("_____Printed stats_____________")
 
 def _get_semented_data_paths()->List[Tuple]:
     _root_dir= "/home/iccs/Desktop/isense/events/intention_prediction/processed_data/new_data/"
     paths=[]
     for recording in os.listdir(_root_dir):
-        for drive in os.listdir(join(_root_dir,recording,drive)):
+        for drive in os.listdir(join(_root_dir,recording)):
             paths.append((join(_root_dir , recording, drive , "processed_data") , join(_root_dir , recording, drive , "video_camera1.mp4")))
     return paths
 
