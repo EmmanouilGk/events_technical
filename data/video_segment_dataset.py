@@ -16,10 +16,11 @@ from torchvision.transforms.v2 import ToImage
 from tqdm import tqdm
 
 def compute_weights(ds, 
-                    save = True):
+                    save = True,
+                    custom_scaling:int =1):
            """
            Compute balancing wegiths for torch.utils.BatchSampler 
-           
+           custom scaling for the minority class:extrac scaling of weights
            """
            N=len(ds)
 
@@ -32,7 +33,7 @@ def compute_weights(ds,
                 if label==0:count_lk+=1
                 if label==1:count_llc+=1
                 if label==2:count_rlc+=1
-           class_counts = list((count_lk , count_llc , count_rlc))
+           class_counts = list((count_lk , custom_scaling*count_llc , custom_scaling*count_rlc)) #extra scaling for minority class
            num_samples = sum(class_counts)
            class_weights = [num_samples/class_counts[i] for i in range(len(class_counts))]
            weights = [class_weights[labels[i]] for i in range(int(num_samples))]
@@ -535,10 +536,25 @@ class union_prevention(prevention_dataset_train , Dataset):
         ds4=prevention_dataset_train(root= "/home/iccs/Desktop/isense/events/intention_prediction/processed_data/new_data/recording_05/drive_03/segmented_frames"
                                                 ,label_root="/home/iccs/Desktop/isense/events/intention_prediction/processed_data/new_data/recording_05/drive_03/processed_data/detection_camera1/lane_changes.txt") #r05_d03
         
-        input(len(ds4))
         
         print("Train Dataset size is:\nDs1(rec01_01):{}\nDs2(rec02_01):{}\nDs3(rec03_01):{}\nDs4(rec05_03):{}\n".format(len(ds1),len(ds2),len(ds3),len(ds4)))
         print("Classes Ds1{}\nDs2{}\nDs3{}\nDs4{}\n".format(ds1._print_stat(),ds2._print_stat(),ds3._print_stat(),ds4._print_stat()))
+        input("_____Printed stats_____________")
+
+        ds5=prevention_dataset_train(root= "/home/iccs/Desktop/isense/events/intention_prediction/processed_data/segmented_frames",
+                                label_root="/home/iccs/Desktop/isense/events/intention_prediction/processed_data/detection_camera1/lane_changes.txt")
+        
+        ds6=prevention_dataset_train(root= "/home/iccs/Desktop/isense/events/intention_prediction/processed_data/new_data/processed_data_02/segmented_frames",
+                                                label_root="/home/iccs/Desktop/isense/events/intention_prediction/processed_data/new_data/processed_data_02/processed_data/detection_camera1/lane_changes.txt")
+        ds7=prevention_dataset_train(root= "/home/iccs/Desktop/isense/events/intention_prediction/processed_data/new_data/processed_data_03/segmented_frames",
+                                                label_root="/home/iccs/Desktop/isense/events/intention_prediction/processed_data/new_data/processed_data_03/processed_data/detection_camera1/lane_changes.txt")
+        ds8=prevention_dataset_train(root= "/home/iccs/Desktop/isense/events/intention_prediction/processed_data/new_data/recording_05/drive_03/segmented_frames"
+                                                ,label_root="/home/iccs/Desktop/isense/events/intention_prediction/processed_data/new_data/recording_05/drive_03/processed_data/detection_camera1/lane_changes.txt") #r05_d03
+        
+        
+        
+        print("val Dataset size is:\nDs1(rec01_01):{}\nDs2(rec02_01):{}\nDs3(rec03_01):{}\nDs4(rec05_03):{}\n".format(len(ds5),len(ds6),len(ds7),len(ds8)))
+        print("Classes Ds1{}\nDs2{}\nDs3{}\nDs4{}\n".format(ds5._print_stat(),ds6._print_stat(),ds7._print_stat(),ds8._print_stat()))
         input("_____Printed stats_____________")
 
 def _get_semented_data_paths()->List[Tuple]:
