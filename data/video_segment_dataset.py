@@ -2,6 +2,7 @@ import os
 from typing import Any, List, Tuple
 import cv2
 import math
+from math import floor,ceil
 import sys
 import torch
 from torch.utils.data import Dataset, ConcatDataset
@@ -16,8 +17,10 @@ from torchvision.transforms.v2 import ToImage
 from tqdm import tqdm
 
 def compute_weights(ds, 
+                    save_path:str,
                     save = True,
-                    custom_scaling:int =1):
+                    custom_scaling:int =1,
+                    ):
            """
            Compute balancing wegiths for torch.utils.BatchSampler 
            custom scaling for the minority class:extrac scaling of weights
@@ -40,7 +43,7 @@ def compute_weights(ds,
            weights= torch.DoubleTensor(weights)
 
            if save:
-               torch.save(weights, "/home/iccs/Desktop/isense/events/intention_prediction/data/weights_torch/weights_union_prevention3.pt")
+               torch.save(weights, save_path)
 
 
            weight_dict = {"LK" : weights[0] , "LLC":weights[1], "RLC":weights[2]}
@@ -123,6 +126,8 @@ def _read_lane_change_labels(label_root):
     return maneuver_info: List[List[int]]
     """
     maneuver_sequences = []
+    id_sequences = []
+
 
     with open(label_root , "r") as labels:
         annotations = labels.readlines()
@@ -130,9 +135,61 @@ def _read_lane_change_labels(label_root):
         annotations[i] = maneuver_info[:-1] #rmv newline char
         annotations[i] = [int(x) for x in maneuver_info.rsplit(" ")] #extract info as list of list of int
         maneuver_sequences.append(annotations[i][:])  #append maneuver info
+        id_sequences.append(annotations[i][0])
         
         
-    return maneuver_sequences
+    return maneuver_sequences , id_sequences
+
+
+def _read_detections_labels(detections_root):
+    """
+    read car bbox detections
+    """
+    detections=[]
+    with open(detections_root , "r") as f:
+        while True:
+            line = f.readline()
+            line = line[:-1]
+            _line_temp=[]
+            for x in line.rsplit(" "):
+                if x=="":continue
+                _line_temp.append(float(x)) 
+            
+            line = _line_temp
+                
+            assert type(line)==list
+            if not line:
+                break
+            elif line[2]!=1 and line[2]!= 2:   #exclude pedestrians,cyclists
+                
+                detections.append((line[0] ,line[2], line[3:7]))    #1:frame,2:object type annotation,3:bbox x,y tuple
+    
+    return detections
+
+
+def _read_labels_gt(labels_root):
+    """
+    read car bbox detections
+    """
+    detections=[]
+    with open(labels_root , "r") as f:
+        while True:
+            line = f.readline()
+            line = line[:-1]
+            line_p=[]
+            for x in line.rsplit(" "):
+                if x[1:-4]=="":continue
+                x_int = float(x[1:-4])
+                pow_int = int(x[-2:])
+                line_p.append(pow(x_int , pow_int))
+            line=line_p
+            assert type(line)==list
+            if not line:
+                break
+            else:
+                detections.append(line)    #frame,id,x,y,width,height
+    
+    return detections
 
 class base_dataset():
 
@@ -157,10 +214,14 @@ class prevention_dataset_train(Dataset):
 
     def __init__(self,
                  root:str,
-                 label_root:str) -> None:
+                 label_root:str,
+                 **kwargs) -> None:
         super().__init__()
         self.H = 650
         self.W = 650
+
+        if "detection_root" in kwargs: self.detection_root=kwargs["detection_root"]
+        if "gt_root" in kwargs: self.gt_root = kwargs["gt_root"]
 
         self.transform = Compose([ ToImage() , CenterCrop((self.H,self.W)) ]) #transfor for each read frame
 
@@ -168,7 +229,7 @@ class prevention_dataset_train(Dataset):
         for video_frame_srcp in sorted(glob(join(root,".png"))):
             self.data.append(video_frame_srcp)
         
-        self.labels = _read_lane_change_labels(label_root)
+        self.labels = _read_lane_change_labels(label_root)[0]
         self.class_map = {"LK":0, "LLC":1, "RLC":2}
 
         #assign lane change clases
@@ -238,20 +299,58 @@ class prevention_dataset_train(Dataset):
             elif item[1]=="RLC":self.lane_change_left_counter+=1
             # print("Currently have {} lane keep, {} left lane change , {} right lane change".format(self.lane_keep_counter,self.lane_change_left_counter,self.lane_change_right_counter))
 
-
         
+        ##filter maneuvers by existing detect
+        self.gt = _read_labels_gt(labels_root= self.gt_root)
+        self.detections=_read_detections_labels(detections_root= self.detection_root)
+
+        self.labels = list(filter(lambda x : self._check_exist(x[0])==True , self.labels))  #check if labelled frame is in detections txt
+
+
+    def _check_exist(self,frame):
+        for j in self.detections:
+            if j[0]==frame:return True
+        
+        return False
+    
     def _print_stat(self):
         return "LK,LLC,RLC: {}/ {} / {}".format(self.lane_keep_counter,self.lane_change_right_counter,self.lane_change_left_counter)
 
         
+    def crop_frames(self,frames,bboxes):
+
+        delta=20 #pixels left right tolerance
+        frame_cropped=[]
+        for i,frame in enumerate(frames):
+            # input(frame.shape)
+            # input(bboxes[i])
+            frame = frame[floor(bboxes[i][1]) - delta :ceil(bboxes[i][3]) +delta , floor(bboxes[i][0]) -delta:ceil(bboxes[i][2])+delta ] #crop
+            # input(frame)
+            frame_cropped.append(frame)
+        return frame_cropped
 
     def __getitem__(self, index) -> Any:
             segment_paths , label = self.data[index]
+            frames_num = [int(os.path.basename(x)[:-4]) for x in segment_paths]
+        
+            bboxes_frames=[]
+            for i in frames_num:
+                for j in self.detections:
+                    if i == j[0]: 
+                        
+                        bboxes_frames.append(j[2]) 
+            
+
+            # bboxes_frames = [list(filter(lambda x: x[0]==y, self.gt))[-4:] for y in frames_num]
             
             frame_stack = [cv2.imread(x) for x in segment_paths]
 
-            # cv2.imwrite("/home/iccs/Desktop/isense/events/intention_prediction/example_pic2_01.png" , frame_stack[0])
-            # input("waiting")
+            frames_cropped = self.crop_frames(frame_stack , bboxes_frames)
+
+            frame_stack = frames_cropped
+            
+            cv2.imwrite("/home/iccs/Desktop/isense/events/intention_prediction/example_pic2_01.png" , frame_stack[0])
+            input("waiting")
 
             frame_tensor = torch.stack([self.transform(x) for x in frame_stack] , dim=1)
             
@@ -305,7 +404,7 @@ class prevention_dataset_val(Dataset):
         for video_frame_srcp in sorted(glob(join(root,".png"))):
             self.data.append(video_frame_srcp)
         
-        self.labels = _read_lane_change_labels(label_root)
+        self.labels = _read_lane_change_labels(label_root)[0]
         self.class_map = {"LK":0, "LLC":1, "RLC":2}
 
         #assign lane change clases
@@ -316,6 +415,7 @@ class prevention_dataset_val(Dataset):
 
         for maneuver_info in self.labels:
             lane_start = maneuver_info[3]
+            if lane_start<0:continue
             lane_end = maneuver_info[4]
             
             maneuver_event = maneuver_info[2]
@@ -575,7 +675,7 @@ if __name__=="__main__":
     #                     ]
 
     # dirs = 
-
-    data_labels_path = [("/home/iccs/Desktop/isense/events/intention_prediction/processed_data/new_data/recording_04/drive_01/processed_data/",
-                        "/home/iccs/Desktop/isense/events/intention_prediction/processed_data/new_data/recording_04/drive_01/r4_d1_video.mp4")]
+    _r ,_d = 2 ,1 
+    data_labels_path = [("/home/iccs/Desktop/isense/events/intention_prediction/processed_data/new_data/recording_02/drive_01/processed_data/",
+                        "/home/iccs/Desktop/isense/events/intention_prediction/processed_data/new_data/recording_02/drive_01/r2_d1_video.mp4")]
     _segment_video(data_path = data_labels_path)
