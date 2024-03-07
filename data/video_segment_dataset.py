@@ -34,16 +34,17 @@ def compute_weights(ds,
                 if label==1:count_llc+=1
                 if label==2:count_rlc+=1
            class_counts = list((count_lk , custom_scaling*count_llc , custom_scaling*count_rlc)) #extra scaling for minority class
-           num_samples = sum(class_counts)
+           num_samples = sum(list((count_lk , custom_scaling , count_rlc)))
            class_weights = [num_samples/class_counts[i] for i in range(len(class_counts))]
            weights = [class_weights[labels[i]] for i in range(int(num_samples))]
            weights= torch.DoubleTensor(weights)
 
            if save:
-               torch.save(weights, "/home/iccs/Desktop/isense/events/intention_prediction/data/weights_torch/weights_union_prevention2.pt")
+               torch.save(weights, "/home/iccs/Desktop/isense/events/intention_prediction/data/weights_torch/weights_union_prevention3.pt")
 
 
-           return weights , class_weights
+           weight_dict = {"LK" : weights[0] , "LLC":weights[1], "RLC":weights[2]}
+           return weights , class_weights, weight_dict
 
 
 def _calculate_weigths_classes(maneuvers , lk):
@@ -235,7 +236,7 @@ class prevention_dataset_train(Dataset):
             if item[1]=="LK":self.lane_keep_counter+=1
             elif item[1]=="LLC":self.lane_change_right_counter+=1
             elif item[1]=="RLC":self.lane_change_left_counter+=1
-            print("Currently have {} lane keep, {} left lane change , {} right lane change".format(self.lane_keep_counter,self.lane_change_left_counter,self.lane_change_right_counter))
+            # print("Currently have {} lane keep, {} left lane change , {} right lane change".format(self.lane_keep_counter,self.lane_change_left_counter,self.lane_change_right_counter))
 
 
         
@@ -372,7 +373,7 @@ class prevention_dataset_val(Dataset):
             if item[1]=="LK":self.lane_keep_counter+=1
             elif item[1]=="LLC":self.lane_change_right_counter+=1
             elif item[1]=="RLC":self.lane_change_left_counter+=1
-            print("Currently have {} lane keep, {} left lane change , {} right lane change".format(self.lane_keep_counter,self.lane_change_left_counter,self.lane_change_right_counter))
+            # print("Currently have {} lane keep, {} left lane change , {} right lane change".format(self.lane_keep_counter,self.lane_change_left_counter,self.lane_change_right_counter))
         
     def _print_stat(self):
         return "LK,LLC,RLC: {}/ {} / {}".format(self.lane_keep_counter,self.lane_change_right_counter,self.lane_change_left_counter)
@@ -541,14 +542,14 @@ class union_prevention(prevention_dataset_train , Dataset):
         print("Classes Ds1{}\nDs2{}\nDs3{}\nDs4{}\n".format(ds1._print_stat(),ds2._print_stat(),ds3._print_stat(),ds4._print_stat()))
         input("_____Printed stats_____________")
 
-        ds5=prevention_dataset_train(root= "/home/iccs/Desktop/isense/events/intention_prediction/processed_data/segmented_frames",
+        ds5=prevention_dataset_val(root= "/home/iccs/Desktop/isense/events/intention_prediction/processed_data/segmented_frames",
                                 label_root="/home/iccs/Desktop/isense/events/intention_prediction/processed_data/detection_camera1/lane_changes.txt")
         
-        ds6=prevention_dataset_train(root= "/home/iccs/Desktop/isense/events/intention_prediction/processed_data/new_data/processed_data_02/segmented_frames",
+        ds6=prevention_dataset_val(root= "/home/iccs/Desktop/isense/events/intention_prediction/processed_data/new_data/processed_data_02/segmented_frames",
                                                 label_root="/home/iccs/Desktop/isense/events/intention_prediction/processed_data/new_data/processed_data_02/processed_data/detection_camera1/lane_changes.txt")
-        ds7=prevention_dataset_train(root= "/home/iccs/Desktop/isense/events/intention_prediction/processed_data/new_data/processed_data_03/segmented_frames",
+        ds7=prevention_dataset_val(root= "/home/iccs/Desktop/isense/events/intention_prediction/processed_data/new_data/processed_data_03/segmented_frames",
                                                 label_root="/home/iccs/Desktop/isense/events/intention_prediction/processed_data/new_data/processed_data_03/processed_data/detection_camera1/lane_changes.txt")
-        ds8=prevention_dataset_train(root= "/home/iccs/Desktop/isense/events/intention_prediction/processed_data/new_data/recording_05/drive_03/segmented_frames"
+        ds8=prevention_dataset_val(root= "/home/iccs/Desktop/isense/events/intention_prediction/processed_data/new_data/recording_05/drive_03/segmented_frames"
                                                 ,label_root="/home/iccs/Desktop/isense/events/intention_prediction/processed_data/new_data/recording_05/drive_03/processed_data/detection_camera1/lane_changes.txt") #r05_d03
         
         
@@ -575,6 +576,6 @@ if __name__=="__main__":
 
     # dirs = 
 
-    data_labels_path = [("/home/iccs/Desktop/isense/events/intention_prediction/processed_data/new_data/recording_05/drive_03/processed_data/",
-                        "/home/iccs/Desktop/isense/events/intention_prediction/processed_data/new_data/recording_05/drive_03/r5_d3_video.mp4")]
+    data_labels_path = [("/home/iccs/Desktop/isense/events/intention_prediction/processed_data/new_data/recording_04/drive_01/processed_data/",
+                        "/home/iccs/Desktop/isense/events/intention_prediction/processed_data/new_data/recording_04/drive_01/r4_d1_video.mp4")]
     _segment_video(data_path = data_labels_path)
