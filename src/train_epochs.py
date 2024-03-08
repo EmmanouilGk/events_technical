@@ -1,5 +1,5 @@
 import contextlib
-from typing import Dict
+from typing import Dict, Optional
 import numpy as np
 import torch
 import datetime
@@ -44,32 +44,56 @@ class logging_utils():
 
 
 def _write_val_values(val_losses_dict , writer , epoch , losses_dict ):
+      """
+      
+      write val dict metrics in tb
+      """
       for i, (desc , val) in enumerate(val_losses_dict.items()):
-            if desc=="loss_val_epoch": 
-                 for i in range(val.shape[0]):
-                    writer.add_scalar("Val Batch_Loss" , val[i] , (epoch-1)*losses_dict["batch_count"] + i)  #plot val loss
-                 continue
-            if desc=="val_pres":
-                for i in range(2):
-                    writer.add_scalars("Val micro (0=Lk,1=Llc,2=Rlc)" , {"Class {}".format(i):val[1]},  i)   # add epoch wise acc,pres etc metrics 
-                writer.add_scalar("Val Macro" , val[0],  epoch)   # add epoch wise acc,pres etc metrics 
+            for set in ["val","train"]:
+                if desc=="loss_{}_epoch".format(set): 
+                    for i in range(val.shape[0]):
+                        writer.add_scalar("{} Batch_Loss".format(set) , val[i] , (epoch-1)*losses_dict["batch_count"] + i)  #plot val loss
+                    continue
+                if desc=="{}_pres".format(set):
+                    for i in range(2):
+                        writer.add_scalars("{} micro (0=Lk,1=Llc,2=Rlc)".format(set) , {"Class {}".format(i):val[1]},  i)   # add epoch wise acc,pres etc metrics 
+                    writer.add_scalar("{} Macro".format(set) , val[0],  epoch)   # add epoch wise acc,pres etc metrics 
 
-                continue
-            if desc =="val_pres_weighted":
-                for i in range(2):
-                    print(val)
-                    writer.add_scalars("val_pres_weighted" , {"Class {}".format(i):val[1]},  i)   # add epoch wise acc,pres etc metrics 
-                continue
-            if desc=="val_rec":
-                for i in range(2):
-                    writer.add_scalars("Rec micro" , {"Class {}".format(i):val[1]},  i)   # add epoch wise acc,pres etc metrics 
+                    continue
+                if desc =="{}_pres_weighted".format(set):
+                    for i in range(2):
+                        print(val)
+                        writer.add_scalars("{}_pres_weighted".format(set) , {"Class {}".format(i):val[1]},  i)   # add epoch wise acc,pres etc metrics 
+                    continue
+                if desc=="{}_rec".format(set):
+                    for i in range(2):
+                        writer.add_scalars("Rec micro" , {"Class {}".format(i):val[1]},  i)   # add epoch wise acc,pres etc metrics 
 
-                writer.add_scalar("Rec macro" , val[0],  epoch)   # add epoch wise acc,pres etc metrics 
-                continue
-        
-            if desc=="acc":
-                writer.add_scalar(desc , val,  epoch)   # add epoch wise acc,pres etc metrics 
+                    writer.add_scalar("Rec macro" , val[0],  epoch)   # add epoch wise acc,pres etc metrics 
+                    continue
+            
+                if desc=="{}_acc".format(set):
+                    writer.add_scalar(desc , val,  epoch)   # add epoch wise acc,pres etc metrics 
+                if desc=="{}_bacc".format(set):
+                    writer.add_scalar(desc , val,  epoch)   # add epoch wise acc,pres etc metrics 
 
+def save_model(epoch:int,
+               model:torch.nn.Module,
+               optimizer:torch.optim,
+               dstp:str, **kwargs)->None:
+    
+    if "loss" in kwargs:
+        torch.save({'epoch': epoch,
+                'model_state_dict': model.state_dict(),
+                'optimizer_state_dict': optimizer.state_dict(),
+                "loss" : kwargs["losses_dict"]["desc"][-1],
+                }, dstp)
+    else:
+        torch.save({'epoch': epoch,
+                'model_state_dict': model.state_dict(),
+                'optimizer_state_dict': optimizer.state_dict(),
+                
+                }, dstp)
 
 def train(*args,**kwargs):
     """
@@ -82,14 +106,17 @@ def train(*args,**kwargs):
     now = datetime.datetime.now()
     scheduler: torch.optim.lr_scheduler.ExponentialLR = kwargs["scheduler"]
 
+
     # #load weights for training
-    # weights=kwargs["weights"]
+    if "weights" in kwargs:
+        weights=kwargs["weights"]
+        criterion = torch.nn.CrossEntropyLoss( weight= torch.tensor(data = ( weights[0] , weights[1], weights[2]), dtype=torch.float , device=dev))
+        
+    else:
+        criterion = torch.nn.CrossEntropyLoss()
     # print(weights)
-    # # weights = [weights["LK"],weights["LLC"],weights["RLC"],]
-
-
-    # criterion = torch.nn.CrossEntropyLoss( weight= torch.tensor(data = ( weights[0] , weights[1], weights[2]), dtype=torch.float , device=dev))
-    criterion=torch.nn.CrossEntropyLoss()
+    # weights = [weights["LK"],weights["LLC"],weights["RLC"],]
+    
     model=kwargs["model"]
     
 
@@ -106,7 +133,7 @@ def train(*args,**kwargs):
 
     optimizer=kwargs["optimizer"]
     current_epoch=0
-    if kwargs["load_saved_model"]:
+    if "load_saved_model" in kwargs:
         print("Loading saved model at path {}".format(kwargs["load_saved_model"]))
         checkpoint = torch.load(kwargs["load_saved_model"])
         
@@ -115,40 +142,41 @@ def train(*args,**kwargs):
         optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
         current_epoch = checkpoint["epoch"]
         
-    
-
+    patience=0
     #train and val
     for epoch in  range(0 , max_epochs-current_epoch):
 
+        #train and val
         losses_dict = train_one_epoch(*args , **kwargs)   #train losses dict
 
-        for i,loss in enumerate(losses_dict["val"]):
-            writer.add_scalar(losses_dict["desc"] , loss ,  (epoch-1)*losses_dict["batch_count"] + i)  #plot losses 
-
-        writer.add_scalar("Accuracy" , losses_dict["Epoch_mean_Accuracy"]  , epoch)
+        _write_val_values(val_losses_dict= losses_dict , writer=writer,epoch=epoch,losses_dict=losses_dict)
         
-        torch.save({'epoch': epoch,
-            'model_state_dict': model.state_dict(),
-            'optimizer_state_dict': optimizer.state_dict(),
-            "loss" : losses_dict["desc"][-1],
-            }, kwargs["model_save_path"])
+        save_model(epoch,model,optimizer,kwargs["model_save_path"] , losses_dict = losses_dict)
 
         val_losses_dict = val_one_epoch(*args, **kwargs)  #vla losses dict
         
         _write_val_values(val_losses_dict=val_losses_dict , writer=writer,epoch=epoch,losses_dict=losses_dict)
-      
+
+        #early stoppping - learing rate adapation
+        if (val_losses_dict["loss_val_epoch"][-1] - losses_dict["loss_train_epoch"][-1])>0:
+            patience+=1
+        if patience==3:
+            for group in optimizer.param_groups:
+                group["lr"] = group["lr"]/10
+        if patience==6:
+            for group in optimizer.param_groups:
+                group["lr"] = group["lr"]/10
+        if patience == 10: 
+            save_model(epoch,model,optimizer,kwargs["model_save_path"])
+            raise Exception("Early Stopping triggered at epoch {}\nStopping training".format(epoch))
+
 
         scheduler.step()
 
         # writer.add_hparams({"lr" : scheduler.get_last_lr() } ,
         #                     {"loss_mean_val":np.mean(val_losses_dict["loss_val_epoch"])})
 
-        torch.save({'epoch': epoch,
-            'model_state_dict': model.state_dict(),
-            'optimizer_state_dict': optimizer.state_dict(),
-            
-            }, kwargs["model_save_path"])
-        
+        save_model(epoch,model,optimizer ,kwargs["model_save_path"])
 
 def train_one_epoch(*args , **kwargs):
         """
@@ -167,6 +195,7 @@ def train_one_epoch(*args , **kwargs):
         max_batches = 0
         predictions_epoch=[]
         labels_epoch=[]
+        
 
         for batch_idx , (frames , maneuver_type) in (pbar:=tqdm(enumerate(data_loader))): 
 
@@ -177,13 +206,17 @@ def train_one_epoch(*args , **kwargs):
 
             prediction = model(frames)
 
-            loss = criterion(prediction , maneuver_type) / accumulated_gradients
+            loss = torch.nn.functional.cross_entropy(prediction,maneuver_type , weight= torch.tensor(data = ( 20,32), dtype=torch.float , device=dev))
+            print(prediction)
+            print(maneuver_type)
+            print(loss)
+            loss=loss/accumulated_gradients
+            # loss = criterion(prediction , maneuver_type) / accumulated_gradients
 
             loss.backward()
-
             loss_epoch.append(loss.item())
             writer.add_scalar("Online batch loss",loss_epoch[-1],batch_idx)
-
+            
             if ((batch_idx + 1) % accumulated_gradients == 0):
                 optimizer.step()
                 optimizer.zero_grad()
@@ -195,14 +228,32 @@ def train_one_epoch(*args , **kwargs):
 
             predictions_epoch.append(prediction.detach().cpu().numpy())
             labels_epoch.append(maneuver_type.detach().cpu().numpy())
+            
+
+        #convert to int categorical labels
+        predictions_epoch=list(map(lambda x: np.argmax(x) , predictions_epoch))
+        labels_epoch=list(map(lambda x: int(x) , labels_epoch))
+
+        
+        acc = accuracy_score(labels_epoch , predictions_epoch)
+        bacc = balanced_accuracy_score(labels_epoch , predictions_epoch)
+
+        pres_avg=precision_score(labels_epoch , predictions_epoch , average = "macro")
+        pres_class=precision_score(labels_epoch , predictions_epoch , average = "micro")
+        pres=precision_score(labels_epoch , predictions_epoch , average = "weighted")
+
+        rec =recall_score(labels_epoch , predictions_epoch , average="macro")
+        rec_class = recall_score(labels_epoch , predictions_epoch , average= "micro")
 
 
-        acc = accuracy_score(labels_epoch , s:=list(map(lambda x:np.argmax(x) , predictions_epoch))  )  
-
-        return {"desc":"loss_train_epoch",
-                "val":np.array(loss_epoch),
-                "batch_count":max_batches,
-                "Epoch_mean_Accuracy" : acc}
+        print(pres_class)
+        return {"loss_train_epoch":np.array(loss_epoch),
+                "train_acc":acc,
+                "trian_pres":[pres_avg , pres_class] , 
+                "train_rec":[rec,rec_class] ,
+                "train_pres_global":pres,
+                "batch_count":batch_idx,
+                "train_bacc":bacc}
 
 @torch.no_grad
 def val_one_epoch(*args , **kwargs)->Dict:
@@ -218,7 +269,6 @@ def val_one_epoch(*args , **kwargs)->Dict:
         predictions_epoch = []
         labels_epoch = []
         max_epochs_val = 0
-
         
         for batch_idx , (frames , maneuver_type) in (pbar:=tqdm(enumerate(data_loader))): 
             pbar.set_description_str("Val Batch: {}".format(batch_idx))
@@ -241,6 +291,8 @@ def val_one_epoch(*args , **kwargs)->Dict:
 
             max_epochs_val+=1
 
+
+
         #convert to int categorical labels
         predictions_epoch=list(map(lambda x: np.argmax(x) , predictions_epoch))
         labels_epoch=list(map(lambda x: int(x) , labels_epoch))
@@ -256,7 +308,6 @@ def val_one_epoch(*args , **kwargs)->Dict:
         rec =recall_score(labels_epoch , predictions_epoch , average="macro")
         rec_class = recall_score(labels_epoch , predictions_epoch , average= "micro")
 
-
         print(pres_class)
         return {"loss_val_epoch":np.array(loss_epoch),
                 "val_acc":acc,
@@ -264,4 +315,4 @@ def val_one_epoch(*args , **kwargs)->Dict:
                 "val_rec":[rec,rec_class] ,
                 "batch_count":max_epochs_val , 
                 "val_pres_global":pres,
-                "bacc":bacc}
+                "val_bacc":bacc}

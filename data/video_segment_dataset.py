@@ -402,9 +402,14 @@ class prevention_dataset_train(Dataset):
             frames_cropped = self.crop_frames(frame_stack , bboxes_frames)
 
             frame_stack = frames_cropped
-            
-            # cv2.imwrite("/home/iccs/Desktop/isense/events/intention_prediction/example_pic2_01.png" , frame_stack[0])
-            # input("waiting")
+
+
+            print(len(frame_stack))
+            for i,x in enumerate(frame_stack):
+                cv2.imwrite("/home/iccs/Desktop/isense/events/intention_prediction/debug/example_pic2_0{}.png".format(i) , x)
+                
+
+            input("waiting")
 
             frame_tensor = torch.stack([self.transform_roi(x) for x in frame_stack] , dim=1)
             frame_tensor=frame_tensor.type(torch.float)
@@ -423,7 +428,6 @@ class prevention_dataset_train(Dataset):
             
             label_tensor = torch.tensor(self.class_map[label] , dtype = torch.long)
 
-            input("training tensor dims are {}".format(frame_tensor.size()))
 
             return frame_tensor , label_tensor
         
@@ -547,7 +551,6 @@ class prevention_dataset_val(Dataset):
 
             label_tensor = torch.tensor(self.class_map[label] , dtype = torch.float)
 
-            input("val frame tensor size is {}".format(frame_tensor.size()))
             return frame_tensor , label_tensor
         
         

@@ -7,7 +7,17 @@ defaults:
 #string params
 mode: "train"
 dev: "cuda:0"
+use_weights: Yes
 
+SOLVER:
+  BASE_LR: 0.1
+  LR_POLICY: cosine
+  MAX_EPOCH: 196
+  MOMENTUM: 0.9
+  WEIGHT_DECAY: 1e-4
+  WARMUP_EPOCHS: 34.0
+  WARMUP_START_LR: 0.01
+  OPTIMIZING_METHOD: sgd
 
 
 hydra:
