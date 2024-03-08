@@ -1,11 +1,15 @@
 import os
-from typing import Any, List, Tuple
+from typing import Any, Iterable, List, Tuple
+from ..src.train_utils import bisect_right
+
 import cv2
 import math
 from math import floor,ceil
 import sys
+
+from numpy import warnings
 import torch
-from torch.utils.data import Dataset, ConcatDataset
+from torch.utils.data import Dataset, ConcatDataset,IterableDataset
 from os.path import join
 from glob import glob
 from torchvision.transforms import Compose , Resize,  ToTensor , CenterCrop
@@ -36,7 +40,7 @@ def compute_weights(ds,
                 if label==0:count_lk+=1
                 if label==1:count_llc+=1
                 if label==2:count_rlc+=1
-           class_counts = list((count_lk , custom_scaling*count_llc , custom_scaling*count_rlc)) #extra scaling for minority class
+           class_counts = list((custom_scaling*count_lk , count_llc , count_rlc)) #extra scaling for minority class
            num_samples = sum(list((count_lk , custom_scaling , count_rlc)))
            class_weights = [num_samples/class_counts[i] for i in range(len(class_counts))]
            weights = [class_weights[labels[i]] for i in range(int(num_samples))]
@@ -47,6 +51,39 @@ def compute_weights(ds,
 
 
            weight_dict = {"LK" : weights[0] , "LLC":weights[1], "RLC":weights[2]}
+           return weights , class_weights, weight_dict
+
+def compute_weights_binary_cls(ds, 
+                    save_path:str,
+                    save = True,
+                    custom_scaling:int =1,
+                    ):
+           """
+           Compute balancing wegiths for torch.utils.BatchSampler 
+           custom scaling for the minority class:extrac scaling of weights
+           """
+           N=len(ds)
+
+           labels=[]
+           count_lk , count_llc, count_rlc = 0, 0, 0
+           for j in tqdm(range(N)):
+                label=ds[j][1]
+                labels.append(int(label))
+                print(label)
+                if label==2:count_lk+=1
+                if label==0:count_llc+=1
+                if label==1:count_rlc+=1
+           class_counts = list(( count_llc , count_rlc)) #extra scaling for minority class
+           num_samples = sum(list(( custom_scaling , count_rlc)))
+           class_weights = [num_samples/class_counts[i] for i in range(len(class_counts))]
+           weights = [class_weights[labels[i]] for i in range(int(num_samples))]
+           weights= torch.DoubleTensor(weights)
+
+           if save:
+               torch.save(weights, save_path)
+
+
+           weight_dict = {"LLC":weights[0], "RLC":weights[1]}
            return weights , class_weights, weight_dict
 
 
@@ -220,17 +257,23 @@ class prevention_dataset_train(Dataset):
         self.H = 650
         self.W = 650
 
+        self.roi_H = 200
+        self.roi_W = 200
+
         if "detection_root" in kwargs: self.detection_root=kwargs["detection_root"]
         if "gt_root" in kwargs: self.gt_root = kwargs["gt_root"]
+        if "desc" in kwargs: self.desc = kwargs["desc"]
 
         self.transform = Compose([ ToImage() , CenterCrop((self.H,self.W)) ]) #transfor for each read frame
+
+        self.transform_roi = Compose([ ToImage() , CenterCrop((self.roi_H,self.roi_W)) ])
 
         self.data=[]
         for video_frame_srcp in sorted(glob(join(root,".png"))):
             self.data.append(video_frame_srcp)
         
         self.labels = _read_lane_change_labels(label_root)[0]
-        self.class_map = {"LK":0, "LLC":1, "RLC":2}
+        self.class_map = {"LK":2, "LLC":0, "RLC":1}
 
         #assign lane change clases
 
@@ -239,13 +282,17 @@ class prevention_dataset_train(Dataset):
         
         self.labels = self.labels[:self.train_split]#train split
    
+
+        
         for maneuver_info in self.labels:
             lane_start = maneuver_info[3]
             if lane_start<0: continue
             lane_end = maneuver_info[4]
             maneuver_event = maneuver_info[2] #maneuver type
             # if lane_end-lane_start>72:continue  #skip maneuvers taking too long
-            if maneuver_event==4: maneuver_event="RLC"
+            if maneuver_event==4: 
+                
+                maneuver_event="RLC"
             if maneuver_event==3: maneuver_event="LLC"
             
 
@@ -259,14 +306,15 @@ class prevention_dataset_train(Dataset):
             self.data.append([frames_paths , maneuver_event])
             
 
-        if 1:
+        if 0:
             #assign lane keep clases
             i=0
             lk_counter=0
+
             for maneuver in self.labels:
                 
                 frames_paths = sorted([join(root , str(x) + ".png") for x in range( i , maneuver[4])])
-                for j in range(len(frames_paths)//_PADDED_FRAMES):
+                for j in range(len(frames_paths)//_PADDED_FRAMES , 10):
                     counter = 0
                     _temp_list = []
                     for frame in frames_paths:
@@ -275,11 +323,13 @@ class prevention_dataset_train(Dataset):
                         if counter==_PADDED_FRAMES:
                             self.data.append([_temp_list , "LK"])
                             lk_counter+=1
+                            
                             break
                         else:
                             counter+=1
                 
                 i=maneuver[5] #assingn next start to end of current manuver
+                if lk_counter>20: break
 
             # for j in range(0,20,self._MAX_VIDEO_FRAMES):
             #     frames_temp = [] 
@@ -297,7 +347,7 @@ class prevention_dataset_train(Dataset):
             if item[1]=="LK":self.lane_keep_counter+=1
             elif item[1]=="LLC":self.lane_change_right_counter+=1
             elif item[1]=="RLC":self.lane_change_left_counter+=1
-            # print("Currently have {} lane keep, {} left lane change , {} right lane change".format(self.lane_keep_counter,self.lane_change_left_counter,self.lane_change_right_counter))
+            print("Currently have {} lane keep, {} left lane change , {} right lane change".format(self.lane_keep_counter,self.lane_change_left_counter,self.lane_change_right_counter))
 
         
         ##filter maneuvers by existing detect
@@ -306,7 +356,9 @@ class prevention_dataset_train(Dataset):
 
         self.labels = list(filter(lambda x : self._check_exist(x[0])==True , self.labels))  #check if labelled frame is in detections txt
 
-
+    def _get_desc(self):
+        return self.desc
+    
     def _check_exist(self,frame):
         for j in self.detections:
             if j[0]==frame:return True
@@ -316,7 +368,9 @@ class prevention_dataset_train(Dataset):
     def _print_stat(self):
         return "LK,LLC,RLC: {}/ {} / {}".format(self.lane_keep_counter,self.lane_change_right_counter,self.lane_change_left_counter)
 
-        
+    
+
+
     def crop_frames(self,frames,bboxes):
 
         delta=20 #pixels left right tolerance
@@ -324,7 +378,7 @@ class prevention_dataset_train(Dataset):
         for i,frame in enumerate(frames):
             # input(frame.shape)
             # input(bboxes[i])
-            frame = frame[floor(bboxes[i][1]) - delta :ceil(bboxes[i][3]) +delta , floor(bboxes[i][0]) -delta:ceil(bboxes[i][2])+delta ] #crop
+            frame = frame[floor(bboxes[i][1]) - delta :ceil(bboxes[i][3]) +delta+20 , floor(bboxes[i][0]) -delta:ceil(bboxes[i][2])+delta ] #crop
             # input(frame)
             frame_cropped.append(frame)
         return frame_cropped
@@ -349,12 +403,12 @@ class prevention_dataset_train(Dataset):
 
             frame_stack = frames_cropped
             
-            cv2.imwrite("/home/iccs/Desktop/isense/events/intention_prediction/example_pic2_01.png" , frame_stack[0])
-            input("waiting")
+            # cv2.imwrite("/home/iccs/Desktop/isense/events/intention_prediction/example_pic2_01.png" , frame_stack[0])
+            # input("waiting")
 
-            frame_tensor = torch.stack([self.transform(x) for x in frame_stack] , dim=1)
+            frame_tensor = torch.stack([self.transform_roi(x) for x in frame_stack] , dim=1)
+            frame_tensor=frame_tensor.type(torch.float)
             
-
             img=self.transform(cv2.imread(segment_paths[0])).cpu().permute((1,2,0)).numpy()
            
             # cv2.imwrite("/home/iccs/Desktop/isense/events/intention_prediction/example_pic2.png" , img)
@@ -363,11 +417,13 @@ class prevention_dataset_train(Dataset):
             # frame = cv2.imwrite(" /home/iccs/Desktop/isense/events/intention_prediction/example_pic.png",frame_tensor[:,:,:,].detach().cpu().numpy())
             # input("waiting")
             assert  frame_tensor.size(0) == 3
-            assert frame_tensor.size(2) == self.H
-            assert frame_tensor.size(3) == self.W
+            assert frame_tensor.size(2) == self.roi_W
+            assert frame_tensor.size(3) == self.roi_H
 
-            frame_tensor = torch.tensor(frame_tensor, dtype = torch.float)
+            
             label_tensor = torch.tensor(self.class_map[label] , dtype = torch.long)
+
+            input("training tensor dims are {}".format(frame_tensor.size()))
 
             return frame_tensor , label_tensor
         
@@ -393,7 +449,7 @@ class prevention_dataset_val(Dataset):
 
     def __init__(self,
                  root,
-                 label_root,
+                 label_root,**kwargs
                  ) -> None:
         super().__init__()
         self.H = 600
@@ -405,7 +461,7 @@ class prevention_dataset_val(Dataset):
             self.data.append(video_frame_srcp)
         
         self.labels = _read_lane_change_labels(label_root)[0]
-        self.class_map = {"LK":0, "LLC":1, "RLC":2}
+        self.class_map = { "LLC":0, "RLC":1}
 
         #assign lane change clases
         self.val_split = math.floor(len(self.labels)*0.8)-1
@@ -436,26 +492,27 @@ class prevention_dataset_val(Dataset):
         i=self.labels[0][5]
         
           #assign lane keep clases
-        lk_counter=0
-        for maneuver in self.labels:
-            
-            frames_paths = sorted([join(root , str(x) + ".png") for x in range( i , maneuver[4])])
-            
-            for j in range(len(frames_paths)//_PADDED_FRAMES):
-                counter = 0
-                _temp_list = []
-                for frame in frames_paths:
-                    _temp_list.append(frame)
-
-                    if counter==_PADDED_FRAMES:
-                        self.data.append([_temp_list , "LK"])
-                        lk_counter+=1
-                        break
-                    else:
-                        counter+=1
+        if 0:
+            lk_counter=0
+            for maneuver in self.labels:
                 
-            
-            i=maneuver[5] #assingn next start to end of current manuver
+                frames_paths = sorted([join(root , str(x) + ".png") for x in range( i , maneuver[4])])
+                
+                for j in range(len(frames_paths)//_PADDED_FRAMES):
+                    counter = 0
+                    _temp_list = []
+                    for frame in frames_paths:
+                        _temp_list.append(frame)
+
+                        if counter==_PADDED_FRAMES:
+                            self.data.append([_temp_list , "LK"])
+                            lk_counter+=1
+                            break
+                        else:
+                            counter+=1
+                    
+                
+                i=maneuver[5] #assingn next start to end of current manuver
 
 
 
@@ -469,11 +526,11 @@ class prevention_dataset_val(Dataset):
         #     for maneuver_info in self.labels:
         #         if frame_path in range(maneuver_info[5] - maneuver_info[4]):
             self.lane_keep_counter,self.lane_change_right_counter,self.lane_change_left_counter=0,0,0
-        for item in self.data:
-            if item[1]=="LK":self.lane_keep_counter+=1
-            elif item[1]=="LLC":self.lane_change_right_counter+=1
-            elif item[1]=="RLC":self.lane_change_left_counter+=1
-            # print("Currently have {} lane keep, {} left lane change , {} right lane change".format(self.lane_keep_counter,self.lane_change_left_counter,self.lane_change_right_counter))
+        # for item in self.data:
+        #     if item[1]=="LK":self.lane_keep_counter+=1
+        #     elif item[1]=="LLC":self.lane_change_right_counter+=1
+        #     elif item[1]=="RLC":self.lane_change_left_counter+=1
+        #     # print("Currently have {} lane keep, {} left lane change , {} right lane change".format(self.lane_keep_counter,self.lane_change_left_counter,self.lane_change_right_counter))
         
     def _print_stat(self):
         return "LK,LLC,RLC: {}/ {} / {}".format(self.lane_keep_counter,self.lane_change_right_counter,self.lane_change_left_counter)
@@ -486,11 +543,11 @@ class prevention_dataset_val(Dataset):
             
             frame_stack = [cv2.imread(x) for x in segment_paths]
             frame_tensor = torch.stack([self.transform(x) for x in frame_stack] , dim=1)
-
             # assert frame_tensor.size(1) == _PADDED_FRAMES and frame_tensor.size(0) == 3
 
             label_tensor = torch.tensor(self.class_map[label] , dtype = torch.float)
 
+            input("val frame tensor size is {}".format(frame_tensor.size()))
             return frame_tensor , label_tensor
         
         
@@ -523,8 +580,8 @@ class prevention_dataset_test(Dataset):
         for video_frame_srcp in sorted(glob(join(root,".png"))):
             self.data.append(video_frame_srcp)
         
-        self.labels = _read_lane_change_labels(label_root)
-        self.class_map = {"LK":0, "LLC":1, "RLC":2}
+        self.labels = _read_lane_change_labels(label_root)[0]
+        self.class_map = {"LK":2, "LLC":0, "RLC":1}
 
         #assign lane change clases
 
@@ -553,26 +610,27 @@ class prevention_dataset_test(Dataset):
         i=self.labels[0][5]
         
           #assign lane keep clases
-        lk_counter=0
-        for maneuver in self.labels:
-            
-            frames_paths = sorted([join(root , str(x) + ".png") for x in range( i , maneuver[4])])
-            
-            for j in range(len(frames_paths)//_PADDED_FRAMES):
-                counter = 0
-                _temp_list = []
-                for frame in frames_paths:
-                    _temp_list.append(frame)
-
-                    if counter==_PADDED_FRAMES:
-                        self.data.append([_temp_list , "LK"])
-                        lk_counter+=1
-                        break
-                    else:
-                        counter+=1
+        if 0:
+            lk_counter=0
+            for maneuver in self.labels:
                 
-            
-            i=maneuver[5] #assingn next start to end of current manuver
+                frames_paths = sorted([join(root , str(x) + ".png") for x in range( i , maneuver[4])])
+                
+                for j in range(len(frames_paths)//_PADDED_FRAMES):
+                    counter = 0
+                    _temp_list = []
+                    for frame in frames_paths:
+                        _temp_list.append(frame)
+
+                        if counter==_PADDED_FRAMES:
+                            self.data.append([_temp_list , "LK"])
+                            lk_counter+=1
+                            break
+                        else:
+                            counter+=1
+                    
+                
+                i=maneuver[5] #assingn next start to end of current manuver
 
 
 
@@ -602,6 +660,8 @@ class prevention_dataset_test(Dataset):
 
             label_tensor = torch.tensor(self.class_map[label] , dtype = torch.float)
 
+            print("val tensor dims are {}".format(frame_tensor))
+
             return frame_tensor , label_tensor
         
         
@@ -621,6 +681,65 @@ def construct_ds():
         ds_out.append(ds)
     ds = ConcatDataset(ds_out)
     return ConcatDataset
+
+class custom_concat_dataset(Dataset):
+    r"""Dataset as a concatenation of multiple datasets.
+
+    This class is useful to assemble different existing datasets.
+
+    Args:
+        datasets (sequence): List of datasets to be concatenated
+    """
+
+    datasets: List[Dataset]
+    cumulative_sizes: List[int]
+
+    @staticmethod
+    def cumsum(sequence):
+        r, s = [], 0
+        for e in sequence:
+            l = len(e)
+            r.append(l + s)
+            s += l
+        return r
+
+    def __init__(self, datasets: Iterable[Dataset]) -> None:
+        super().__init__()
+        self.datasets = list(datasets)
+        assert len(self.datasets) > 0, 'datasets should not be an empty iterable'  # type: ignore[arg-type]
+        for d in self.datasets:
+            assert not isinstance(d, IterableDataset), "ConcatDataset does not support IterableDataset"
+        self.cumulative_sizes = self.cumsum(self.datasets)
+        self._labels_dict={}
+
+        for i,d in enumerate(self.datasets):
+            
+            self._labels_dict.update({"dataset_{}_{desc}".format(i , desc = d._get_desc() ):d._print_stat()})
+
+    def __len__(self):
+        return self.cumulative_sizes[-1]
+    
+    def _get_ds_labels(self):
+        return self._labels_dict
+
+    def __getitem__(self, idx):
+        if idx < 0:
+            if -idx > len(self):
+                raise ValueError("absolute value of index should not exceed dataset length")
+            idx = len(self) + idx
+        dataset_idx = bisect_right(self.cumulative_sizes, idx)
+        if dataset_idx == 0:
+            sample_idx = idx
+        else:
+            sample_idx = idx - self.cumulative_sizes[dataset_idx - 1]
+        return self.datasets[dataset_idx][sample_idx]
+
+    @property
+    def cummulative_sizes(self):
+        warnings.warn("cummulative_sizes attribute is renamed to "
+                      "cumulative_sizes", DeprecationWarning, stacklevel=2)
+        return self.cumulative_sizes
+
 
 
 class union_prevention(prevention_dataset_train , Dataset):
@@ -676,6 +795,6 @@ if __name__=="__main__":
 
     # dirs = 
     _r ,_d = 2 ,1 
-    data_labels_path = [("/home/iccs/Desktop/isense/events/intention_prediction/processed_data/new_data/recording_02/drive_01/processed_data/",
-                        "/home/iccs/Desktop/isense/events/intention_prediction/processed_data/new_data/recording_02/drive_01/r2_d1_video.mp4")]
+    data_labels_path = [("/home/iccs/Desktop/isense/events/intention_prediction/processed_data/new_data/recording_03/drive_02/processed_data",
+                        "/home/iccs/Desktop/isense/events/intention_prediction/processed_data/new_data/recording_03/drive_02/r3_d2_video.mp4")]
     _segment_video(data_path = data_labels_path)
