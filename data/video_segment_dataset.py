@@ -394,7 +394,7 @@ class prevention_dataset_train(Dataset):
 
                 assert frame.shape[0]> abs(floor(bboxes[i][2]) - delta_y - ceil(bboxes[i][3]) +delta_y+20)
                 assert frame.shape[1]> abs(floor(bboxes[i][0]) -delta_x - ceil(bboxes[i][1])+delta_x)
-                frame_cropped.append(frame)
+                
             except IndexError as e:
                 print("Index error at idx {}, for total bboxes: {}".format(i , len(bboxes)))
                 continue
@@ -402,7 +402,11 @@ class prevention_dataset_train(Dataset):
                 break
             except AssertionError as e3:
                 # traceback.print_exc()
-                print("Assertion error for image of size {}, got croppping dims h,w:{} {} ".format(frame.shape , abs(floor(bboxes[i][2]) - delta - ceil(bboxes[i][3]) +delta+20) ,abs(floor(bboxes[i][0]) - delta - ceil(bboxes[i][1])+delta)))
+                print("Assertion error for image of size {}, got croppping dims h,w:{} {} ".format(frame.shape , abs(floor(bboxes[i][2]) - delta_y - ceil(bboxes[i][3]) +delta_y+20) ,abs(floor(bboxes[i][0]) - delta_x - ceil(bboxes[i][1])+delta_x)))
+                frame = frame
+                
+
+            frame_cropped.append(frame)
 
         return frame_cropped
 
@@ -447,20 +451,25 @@ class prevention_dataset_train(Dataset):
                     else:
                         # raise Exception("unexpected consitenmcy mismath, got id car and id bbox: {} {}".format(id_car , j[1]))
                         continue
+                        
 
+            no_crop=False
                     
-            for x in bboxes_frames: 
+            for i,x in enumerate(bboxes_frames): 
                 if x == []: 
-                    x = [-1]*4
-                    # raise Exception("Unexpected bbox dims")
-            if bboxes_frames==[]: 
-                raise Exception("No bboxes detected")
+                    bboxes_frames[i] = [-1]*4
 
-            # bboxes_frames = [list(filter(lambda x: x[0]==y, self.gt))[-4:] for y in frames_num]
+                    # raise Exception("Unexpected bbox dims")
+
+            if bboxes_frames==[]: 
+                frames_cropped = frames
+                no_crop=True
+                raise Exception("No bboxes detected")
             
             frame_stack = [cv2.imread(x) for x in segment_paths]
 
-            frames_cropped = self.crop_frames(frame_stack , bboxes_frames)
+            if not no_crop:
+                frames_cropped = self.crop_frames(frame_stack , bboxes_frames)
 
             frame_stack = frames_cropped
 
