@@ -43,9 +43,6 @@ def my_app(cfg: DictConfig):
                                              gt_root="/home/iccs/Desktop/isense/events/intention_prediction/processed_data/detection_camera1/labels.txt",
                                              detection_root = "/home/iccs/Desktop/isense/events/intention_prediction/processed_data/detection_camera1/detections.txt")
                                              
-    
-
-
 
     dataset_val = prevention_dataset_val(root= "/home/iccs/Desktop/isense/events/intention_prediction/processed_data/segmented_frames",
                                              label_root="/home/iccs/Desktop/isense/events/intention_prediction/processed_data/detection_camera1/lane_changes.txt")
@@ -58,58 +55,58 @@ def my_app(cfg: DictConfig):
     print(repr(dataset_train))
     _root_dir = "/home/iccs/Desktop/isense/events/intention_prediction/processed_data/"
     _dataset_files = _get_semented_data_paths()
-    dataset_train = custom_concat_dataset([
-                                    prevention_dataset_train(root= join(_root_dir , "new_data/recording_05/drive_03/segmented_frames"),
-                                             label_root=join(_root_dir , "new_data/recording_05/drive_03/processed_data/detection_camera1/lane_changes.txt"),
-                                             gt_root=join(_root_dir , "new_data/recording_05/drive_03/processed_data/detection_camera1/labels.txt"),
-                                             detection_root = join(_root_dir , "new_data/recording_05/drive_03/processed_data/detection_camera1/detections.txt")
-                                             ,desc = "Rec_05_03")
-                                        ,  
+    # dataset_train =  ConcatDataset([
+    #                                 prevention_dataset_train(root= join(_root_dir , "new_data/recording_05/drive_03/segmented_frames"),
+    #                                          label_root=join(_root_dir , "new_data/recording_05/drive_03/processed_data/detection_camera1/lane_changes.txt"),
+    #                                          gt_root=join(_root_dir , "new_data/recording_05/drive_03/processed_data/detection_camera1/labels.txt"),
+    #                                          detection_root = join(_root_dir , "new_data/recording_05/drive_03/processed_data/detection_camera1/detections_tracked.txt")
+    #                                          ,desc = "Rec_05_03")
+    #                                     ,  
     
-                                    prevention_dataset_train(root= join(_root_dir , "new_data/recording_04/drive_01/segmented_frames"),
-                                             label_root=join(_root_dir , "new_data/recording_04/drive_01/processed_data/detection_camera1/lane_changes.txt"),
-                                             gt_root=join(_root_dir , "new_data/recording_04/drive_01/processed_data/detection_camera1/labels.txt"),
-                                             detection_root = join(_root_dir , "new_data/recording_04/drive_01/processed_data/detection_camera1/detections.txt")
-                                             ,desc = "Rec_04_01"),
+    #                                 prevention_dataset_train(root= join(_root_dir , "new_data/recording_04/drive_01/segmented_frames"),
+    #                                          label_root=join(_root_dir , "new_data/recording_04/drive_01/processed_data/detection_camera1/lane_changes.txt"),
+    #                                          gt_root=join(_root_dir , "new_data/recording_04/drive_01/processed_data/detection_camera1/labels.txt"),
+    #                                          detection_root = join(_root_dir , "new_data/recording_04/drive_01/processed_data/detection_camera1/detections_tracked.txt")
+    #                                          ,desc = "Rec_04_01"),
     
 
-                                    prevention_dataset_train(root= join(_root_dir , "new_data/recording_02/drive_01/segmented_frames"),
-                                             label_root=join(_root_dir , "new_data/recording_02/drive_01/processed_data/detection_camera1/lane_changes.txt"),
-                                             gt_root=join(_root_dir , "new_data/recording_02/drive_01/processed_data/detection_camera1/labels.txt"),
-                                             detection_root = join(_root_dir , "new_data/recording_02/drive_01/processed_data/detection_camera1/detections.txt")
-                                             ,desc = "Rec_02_01"),
+    #                                 prevention_dataset_train(root= join(_root_dir , "new_data/recording_02/drive_01/segmented_frames"),
+    #                                          label_root=join(_root_dir , "new_data/recording_02/drive_01/processed_data/detection_camera1/lane_changes.txt"),
+    #                                          gt_root=join(_root_dir , "new_data/recording_02/drive_01/processed_data/detection_camera1/labels.txt"),
+    #                                          detection_root = join(_root_dir , "new_data/recording_02/drive_01/processed_data/detection_camera1/detections_tracked.txt")
+    #                                          ,desc = "Rec_02_01"),
     
-                                    prevention_dataset_train(root= join(_root_dir , "new_data/recording_03/drive_02/segmented_frames"),
-                                             label_root=join(_root_dir , "new_data/recording_03/drive_02/processed_data/detection_camera1/lane_changes.txt"),
-                                             gt_root=join(_root_dir , "new_data/recording_03/drive_02/processed_data/detection_camera1/labels.txt"),
-                                             detection_root = join(_root_dir , "new_data/recording_03/drive_02/processed_data/detection_camera1/detections.txt")
-                                             ,desc = "Rec_03_02"),
+    #                                 prevention_dataset_train(root= join(_root_dir , "new_data/recording_03/drive_02/segmented_frames"),
+    #                                          label_root=join(_root_dir , "new_data/recording_03/drive_02/processed_data/detection_camera1/lane_changes.txt"),
+    #                                          gt_root=join(_root_dir , "new_data/recording_03/drive_02/processed_data/detection_camera1/labels.txt"),
+    #                                          detection_root = join(_root_dir , "new_data/recording_03/drive_02/processed_data/detection_camera1/detections_tracked.txt")
+    #                                          ,desc = "Rec_03_02"),
                                                                
-                                    ])
+    #                                 ])
     
-    dataset_val = ConcatDataset([
-                                    prevention_dataset_val(root= join(_root_dir , "new_data/recording_05/drive_03/segmented_frames"),
-                                             label_root=join(_root_dir , "new_data/recording_05/drive_03/processed_data/detection_camera1/lane_changes.txt"),
-                                             gt_root=join(_root_dir , "new_data/recording_05/drive_03/processed_data/detection_camera1/labels.txt"),
-                                             detection_root = join(_root_dir , "new_data/recording_05/drive_03/processed_data/detection_camera1/detections.txt")
-                                             ),  
+    # dataset_val = ConcatDataset([
+    #                                 prevention_dataset_val(root= join(_root_dir , "new_data/recording_05/drive_03/segmented_frames"),
+    #                                          label_root=join(_root_dir , "new_data/recording_05/drive_03/processed_data/detection_camera1/lane_changes.txt"),
+    #                                          gt_root=join(_root_dir , "new_data/recording_05/drive_03/processed_data/detection_camera1/labels.txt"),
+    #                                          detection_root = join(_root_dir , "new_data/recording_05/drive_03/processed_data/detection_camera1/detections_tracked.txt")
+    #                                          ),  
     
-                                    prevention_dataset_val(root= join(_root_dir , "new_data/recording_04/drive_01/segmented_frames"),
-                                             label_root=join(_root_dir , "new_data/recording_04/drive_01/processed_data/detection_camera1/lane_changes.txt"),
-                                             gt_root=join(_root_dir , "new_data/recording_04/drive_01/processed_data/detection_camera1/labels.txt"),
-                                             detection_root = join(_root_dir , "new_data/recording_04/drive_01/processed_data/detection_camera1/detections.txt")
-                                             ),
+    #                                 prevention_dataset_val(root= join(_root_dir , "new_data/recording_04/drive_01/segmented_frames"),
+    #                                          label_root=join(_root_dir , "new_data/recording_04/drive_01/processed_data/detection_camera1/lane_changes.txt"),
+    #                                          gt_root=join(_root_dir , "new_data/recording_04/drive_01/processed_data/detection_camera1/labels.txt"),
+    #                                          detection_root = join(_root_dir , "new_data/recording_04/drive_01/processed_data/detection_camera1/detections_tracked.txt")
+    #                                          ),
     
-                                    prevention_dataset_val(root= join(_root_dir , "new_data/recording_02/drive_01/segmented_frames"),
-                                             label_root=join(_root_dir , "new_data/recording_02/drive_01/processed_data/detection_camera1/lane_changes.txt"),
-                                             gt_root=join(_root_dir , "new_data/recording_02/drive_01/processed_data/detection_camera1/labels.txt"),
-                                             detection_root = join(_root_dir , "new_data/recording_02/drive_01/processed_data/detection_camera1/detections.txt")
-                                             ),
-                                    prevention_dataset_val(root= join(_root_dir , "new_data/recording_02/drive_01/segmented_frames"),
-                                             label_root=join(_root_dir , "new_data/recording_05/drive_03/processed_data/detection_camera1/lane_changes.txt"),
-                                             gt_root=join(_root_dir , "new_data/recording_05/drive_03/processed_data/detection_camera1/labels.txt"),
-                                             detection_root = join(_root_dir , "new_data/recording_05/drive_03/processed_data/detection_camera1/detections.txt")
-                                             ) ])
+    #                                 prevention_dataset_val(root= join(_root_dir , "new_data/recording_02/drive_01/segmented_frames"),
+    #                                          label_root=join(_root_dir , "new_data/recording_02/drive_01/processed_data/detection_camera1/lane_changes.txt"),
+    #                                          gt_root=join(_root_dir , "new_data/recording_02/drive_01/processed_data/detection_camera1/labels.txt"),
+    #                                          detection_root = join(_root_dir , "new_data/recording_02/drive_01/processed_data/detection_camera1/detections_tracked.txt")
+    #                                          ),
+    #                                 prevention_dataset_val(root= join(_root_dir , "new_data/recording_02/drive_01/segmented_frames"),
+    #                                          label_root=join(_root_dir , "new_data/recording_05/drive_03/processed_data/detection_camera1/lane_changes.txt"),
+    #                                          gt_root=join(_root_dir , "new_data/recording_05/drive_03/processed_data/detection_camera1/labels.txt"),
+    #                                          detection_root = join(_root_dir , "new_data/recording_05/drive_03/processed_data/detection_camera1/detections_tracked.txt")
+    #                                          ) ])
     
     dataset_test = ConcatDataset([
                                     # prevention_dataset_test(root= "/home/iccs/Desktop/isense/events/intention_prediction/processed_data/segmented_test_frames",
@@ -132,6 +129,11 @@ def my_app(cfg: DictConfig):
         dataloader_train = DataLoader(dataset_train , batch_size=1 , 
                                   collate_fn= collate_fn_padding , shuffle=False , 
                                   sampler =torch.utils.data.WeightedRandomSampler(weights=weights, num_samples = len(dataset_train),replacement=True),
+                                  pin_memory=True)
+        
+        dataloader_train = DataLoader(dataset_train , batch_size=1 , 
+                                  collate_fn= collate_fn_padding , shuffle=False , 
+                                  sampler =torch.utils.data.SequentialSampler(),
                                   pin_memory=True)
 
     elif not cfg.conf.use_weights:

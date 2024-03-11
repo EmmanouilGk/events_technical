@@ -7,7 +7,7 @@ defaults:
 #string params
 mode: "train"
 dev: "cuda:0"
-use_weights: Yes
+use_weights: null
 
 SOLVER:
   BASE_LR: 0.1

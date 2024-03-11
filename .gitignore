@@ -3,3 +3,4 @@
 /logs
 /models/weights
 /data/weights_torch
+/debug

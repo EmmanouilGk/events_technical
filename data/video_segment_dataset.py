@@ -17,7 +17,7 @@ import fnmatch
 from ..conf.conf_py import _PADDED_FRAMES
 import pandas as pd
 from torchvision.transforms.v2 import ToImage
-
+import traceback
 from tqdm import tqdm
 
 def compute_weights(ds, 
@@ -379,14 +379,31 @@ class prevention_dataset_train(Dataset):
 
     def crop_frames(self,frames,bboxes):
 
-        delta=20 #pixels left right tolerance
+        delta_y=20 #pixels left right tolerance
+        delta_x = 30
         frame_cropped=[]
+        
         for i,frame in enumerate(frames):
-            # input(frame.shape)
-            # input(bboxes[i])
-            frame = frame[floor(bboxes[i][2]) - delta :ceil(bboxes[i][3]) +delta+20 , floor(bboxes[i][0]) -delta:ceil(bboxes[i][1])+delta ] #crop
-            # input(frame)
-            frame_cropped.append(frame)
+            try:
+                
+
+                # input(frame.shape)
+                # input(bboxes[i])
+                frame = frame[floor(bboxes[i][2]) - delta_y :ceil(bboxes[i][3]) +delta_y+20 , floor(bboxes[i][0]) -delta_x:ceil(bboxes[i][1])+delta_x ] #crop
+                # input(frame)
+
+                assert frame.shape[0]> abs(floor(bboxes[i][2]) - delta_y - ceil(bboxes[i][3]) +delta_y+20)
+                assert frame.shape[1]> abs(floor(bboxes[i][0]) -delta_x - ceil(bboxes[i][1])+delta_x)
+                frame_cropped.append(frame)
+            except IndexError as e:
+                print("Index error at idx {}, for total bboxes: {}".format(i , len(bboxes)))
+                continue
+            except StopIteration as e2:
+                break
+            except AssertionError as e3:
+                # traceback.print_exc()
+                print("Assertion error for image of size {}, got croppping dims h,w:{} {} ".format(frame.shape , abs(floor(bboxes[i][2]) - delta - ceil(bboxes[i][3]) +delta+20) ,abs(floor(bboxes[i][0]) - delta - ceil(bboxes[i][1])+delta)))
+
         return frame_cropped
 
     def __getitem__(self, index) -> Any:
@@ -395,7 +412,6 @@ class prevention_dataset_train(Dataset):
 
             frames = [int(os.path.basename(x)[:-4]) for x in segment_paths]
 
-            input(frames)
             
             bboxes_frames=[]
             frames_annotated=[]
@@ -423,15 +439,16 @@ class prevention_dataset_train(Dataset):
                         frames_annotated.append(detection_gt[0])
                         bboxes_frames.append([_x:=(detection_gt[2]),_x_w:=(detection_gt[2]+detection_gt[4]),
                                               _y:=(detection_gt[3]),_y_h:=(detection_gt[3]+detection_gt[5]) ])
+                        
+                        len(bboxes_frames)
+                        print(bboxes_frames)
                         break
 
                     else:
                         # raise Exception("unexpected consitenmcy mismath, got id car and id bbox: {} {}".format(id_car , j[1]))
                         continue
 
-                        
-            
-            input(len(bboxes_frames))
+                    
             for x in bboxes_frames: 
                 if x == []: raise Exception("Unexpected bbox dims")
             if bboxes_frames==[]: raise Exception("Unexpected bbox dims")
@@ -447,10 +464,11 @@ class prevention_dataset_train(Dataset):
             assert frame_stack!=[]
             print(len(frame_stack))
             for i,x in enumerate(frame_stack):
-                cv2.imwrite("/home/iccs/Desktop/isense/events/intention_prediction/debug/example_pic2_0{}.png".format(i) , x)
-                
+                try:
 
-            input("waiting")
+                    cv2.imwrite("/home/iccs/Desktop/isense/events/intention_prediction/debug/example_pic2_0{}.png".format(i) , x)
+                except Exception as e:
+                    continue
 
             frame_tensor = torch.stack([self.transform_roi(x) for x in frame_stack] , dim=1)
             frame_tensor=frame_tensor.type(torch.float)
@@ -516,7 +534,6 @@ class prevention_dataset_train(Dataset):
 
                             
                 
-                input(len(bboxes_frames))
                 for x in bboxes_frames: 
                     if x == []: break
                 if bboxes_frames==[]: break
@@ -535,7 +552,6 @@ class prevention_dataset_train(Dataset):
                     cv2.imwrite("/home/iccs/Desktop/isense/events/intention_prediction/debug/example_pic2_0{}.png".format(i) , x)
                     
 
-                input("waiting")
 
                 frame_tensor = torch.stack([self.transform_roi(x) for x in frame_stack] , dim=1)
                 frame_tensor=frame_tensor.type(torch.float)
