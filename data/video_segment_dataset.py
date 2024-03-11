@@ -15,7 +15,7 @@ from glob import glob
 from torchvision.transforms import Compose , Resize,  ToTensor , CenterCrop
 import fnmatch
 from ..conf.conf_py import _PADDED_FRAMES
-
+import pandas as pd
 from torchvision.transforms.v2 import ToImage
 
 from tqdm import tqdm
@@ -199,7 +199,7 @@ def _read_detections_labels(detections_root):
                 break
             elif line[2]!=1 and line[2]!= 2:   #exclude pedestrians,cyclists
                 
-                detections.append((line[0] ,line[2], line[3:7]))    #1:frame,2:object type annotation,3:bbox x,y tuple
+                detections.append((line[0] ,line[1] ,line[2], line[3:7]))    #1:frame,2:object type annotation,3:bbox x,y tuple
     
     return detections
 
@@ -209,6 +209,8 @@ def _read_labels_gt(labels_root):
     read car bbox detections
     """
     detections=[]
+    df = pd.read_csv(labels_root, sep=" ")
+
     with open(labels_root , "r") as f:
         while True:
             line = f.readline()
@@ -216,9 +218,10 @@ def _read_labels_gt(labels_root):
             line_p=[]
             for x in line.rsplit(" "):
                 if x[1:-4]=="":continue
-                x_int = float(x[1:-4])
-                pow_int = int(x[-2:])
-                line_p.append(pow(x_int , pow_int))
+
+                x= int(float(x[1:-4])*10**int(x[-1]))
+
+                line_p.append(x)
             line=line_p
             assert type(line)==list
             if not line:
@@ -273,7 +276,9 @@ class prevention_dataset_train(Dataset):
             self.data.append(video_frame_srcp)
         
         self.labels = _read_lane_change_labels(label_root)[0]
+        self.ids_seq = _read_lane_change_labels(label_root)[1]
         self.class_map = {"LK":2, "LLC":0, "RLC":1}
+
 
         #assign lane change clases
 
@@ -282,20 +287,19 @@ class prevention_dataset_train(Dataset):
         
         self.labels = self.labels[:self.train_split]#train split
    
+        for maneuver_info,id_car in zip(self.labels,self.ids_seq):
 
-        
-        for maneuver_info in self.labels:
             lane_start = maneuver_info[3]
             if lane_start<0: continue
+
             lane_end = maneuver_info[4]
             maneuver_event = maneuver_info[2] #maneuver type
+            id_car = abs(maneuver_info[0])
+            if id_car<0:continue
             # if lane_end-lane_start>72:continue  #skip maneuvers taking too long
-            if maneuver_event==4: 
-                
-                maneuver_event="RLC"
+            if maneuver_event==4: maneuver_event="RLC"
             if maneuver_event==3: maneuver_event="LLC"
             
-
             assert lane_start>0 and lane_end>0, "Expected positive maneuver labels,got {} {}".format(lane_start , lane_end)
 
             frames_paths = sorted([join(root , str(x) + ".png") for x in range(lane_start-5 , lane_end)])
@@ -303,7 +307,7 @@ class prevention_dataset_train(Dataset):
             for x in frames_paths: 
                 assert os.path.isfile(x),"No file/bad file found at path {}".format(x)
             
-            self.data.append([frames_paths , maneuver_event])
+            self.data.append([frames_paths , maneuver_event , id_car])
             
 
         if 0:
@@ -352,9 +356,14 @@ class prevention_dataset_train(Dataset):
         
         ##filter maneuvers by existing detect
         self.gt = _read_labels_gt(labels_root= self.gt_root)
+        print(self.gt)
         self.detections=_read_detections_labels(detections_root= self.detection_root)
 
+        # input("Label annnotations are {}".format(self.gt))
+
         self.labels = list(filter(lambda x : self._check_exist(x[0])==True , self.labels))  #check if labelled frame is in detections txt
+        # self.test_stuff()
+
 
     def _get_desc(self):
         return self.desc
@@ -368,9 +377,6 @@ class prevention_dataset_train(Dataset):
     def _print_stat(self):
         return "LK,LLC,RLC: {}/ {} / {}".format(self.lane_keep_counter,self.lane_change_right_counter,self.lane_change_left_counter)
 
-    
-
-
     def crop_frames(self,frames,bboxes):
 
         delta=20 #pixels left right tolerance
@@ -378,22 +384,57 @@ class prevention_dataset_train(Dataset):
         for i,frame in enumerate(frames):
             # input(frame.shape)
             # input(bboxes[i])
-            frame = frame[floor(bboxes[i][1]) - delta :ceil(bboxes[i][3]) +delta+20 , floor(bboxes[i][0]) -delta:ceil(bboxes[i][2])+delta ] #crop
+            frame = frame[floor(bboxes[i][2]) - delta :ceil(bboxes[i][3]) +delta+20 , floor(bboxes[i][0]) -delta:ceil(bboxes[i][1])+delta ] #crop
             # input(frame)
             frame_cropped.append(frame)
         return frame_cropped
 
     def __getitem__(self, index) -> Any:
-            segment_paths , label = self.data[index]
-            frames_num = [int(os.path.basename(x)[:-4]) for x in segment_paths]
-        
-            bboxes_frames=[]
-            for i in frames_num:
-                for j in self.detections:
-                    if i == j[0]: 
-                        
-                        bboxes_frames.append(j[2]) 
             
+            segment_paths , label ,id_car= self.data[index]
+
+            frames = [int(os.path.basename(x)[:-4]) for x in segment_paths]
+
+            input(frames)
+            
+            bboxes_frames=[]
+            frames_annotated=[]
+
+
+            #iter over frames in seg
+            for i,frame_counter in (pbar2:=tqdm(enumerate(frames) , position=0,desc='Outter')):
+                #iter over detections labels
+                for detection_gt in (pbar:=tqdm(self.gt , position=1,desc='Inner')):
+                    pbar2.set_description_str("now frames # {}".format(i))
+                    
+                    pbar.set_description_str("Labelled detections are {}".format(detection_gt))
+                    if detection_gt[1]<0:continue
+                    # print("Searching for car of id {}, now id in detectino is {}".format(id_car , detection_gt[1]))
+                    ##find closest frame in detectios:
+                    # if (frame_counter-detection_gt)<=5 or (detection_gt-frame_counter)<=5:
+
+                    #     bboxes_frames.append((detection_gt[3],frame_counter - detection_gt)) ##append the bbox associated to that frame
+                    #     bboxes_frames = sorted(bboxes_frames , key = bboxes_frames[1])
+                    #     bboxes_frames = _remove_duplicate_bboxes(bboxes_frames)
+                    #     bboxes_frames = [bboxes_frames[0]]
+                    
+                    if detection_gt[0] == frame_counter and id_car == detection_gt[1]: #check id car is the detected in labels.
+                        
+                        frames_annotated.append(detection_gt[0])
+                        bboxes_frames.append([_x:=(detection_gt[2]),_x_w:=(detection_gt[2]+detection_gt[4]),
+                                              _y:=(detection_gt[3]),_y_h:=(detection_gt[3]+detection_gt[5]) ])
+                        break
+
+                    else:
+                        # raise Exception("unexpected consitenmcy mismath, got id car and id bbox: {} {}".format(id_car , j[1]))
+                        continue
+
+                        
+            
+            input(len(bboxes_frames))
+            for x in bboxes_frames: 
+                if x == []: raise Exception("Unexpected bbox dims")
+            if bboxes_frames==[]: raise Exception("Unexpected bbox dims")
 
             # bboxes_frames = [list(filter(lambda x: x[0]==y, self.gt))[-4:] for y in frames_num]
             
@@ -403,7 +444,7 @@ class prevention_dataset_train(Dataset):
 
             frame_stack = frames_cropped
 
-
+            assert frame_stack!=[]
             print(len(frame_stack))
             for i,x in enumerate(frame_stack):
                 cv2.imwrite("/home/iccs/Desktop/isense/events/intention_prediction/debug/example_pic2_0{}.png".format(i) , x)
@@ -440,6 +481,82 @@ class prevention_dataset_train(Dataset):
     def get_weights(self):
         return self.weights 
     
+    def test_stuff(self,):
+            input("Total ds lenght is :{}".format(len(self.data)))
+            for index in range(len(self.data)):
+                segment_paths , label ,id_car= self.data[index]
+
+                frames = [int(os.path.basename(x)[:-4]) for x in segment_paths]
+                
+                bboxes_frames=[]
+                frames_annotated=[]
+
+
+                #iter over frames in seg
+                for frame_counter in frames:
+                    #iter over detections labels
+                    for detection_gt in self.gt:
+                        if detection_gt[1]<0:continue
+                        print("Searching for car of id {}, now id in detectino is {}".format(id_car , detection_gt[1]))
+                        ##find closest frame in detectios:
+                        # if (frame_counter-detection_gt)<=5 or (detection_gt-frame_counter)<=5:
+
+                        #     bboxes_frames.append((detection_gt[3],frame_counter - detection_gt)) ##append the bbox associated to that frame
+                        #     bboxes_frames = sorted(bboxes_frames , key = bboxes_frames[1])
+                        #     bboxes_frames = _remove_duplicate_bboxes(bboxes_frames)
+                        #     bboxes_frames = [bboxes_frames[0]]
+                        if detection_gt[0] == frame_counter and id_car == detection_gt[1]:
+                            
+                            frames_annotated.append(detection_gt[0])
+                            break
+
+                        else:
+                            # raise Exception("unexpected consitenmcy mismath, got id car and id bbox: {} {}".format(id_car , j[1]))
+                            continue
+
+                            
+                
+                input(len(bboxes_frames))
+                for x in bboxes_frames: 
+                    if x == []: break
+                if bboxes_frames==[]: break
+
+                # bboxes_frames = [list(filter(lambda x: x[0]==y, self.gt))[-4:] for y in frames_num]
+                
+                frame_stack = [cv2.imread(x) for x in segment_paths]
+
+                frames_cropped = self.crop_frames(frame_stack , bboxes_frames)
+
+                frame_stack = frames_cropped
+
+                assert frame_stack!=[]
+                print(len(frame_stack))
+                for i,x in enumerate(frame_stack):
+                    cv2.imwrite("/home/iccs/Desktop/isense/events/intention_prediction/debug/example_pic2_0{}.png".format(i) , x)
+                    
+
+                input("waiting")
+
+                frame_tensor = torch.stack([self.transform_roi(x) for x in frame_stack] , dim=1)
+                frame_tensor=frame_tensor.type(torch.float)
+                
+                img=self.transform(cv2.imread(segment_paths[0])).cpu().permute((1,2,0)).numpy()
+            
+                # cv2.imwrite("/home/iccs/Desktop/isense/events/intention_prediction/example_pic2.png" , img)
+                # input("waiting")
+
+                # frame = cv2.imwrite(" /home/iccs/Desktop/isense/events/intention_prediction/example_pic.png",frame_tensor[:,:,:,].detach().cpu().numpy())
+                # input("waiting")
+                assert  frame_tensor.size(0) == 3
+                assert frame_tensor.size(2) == self.roi_W
+                assert frame_tensor.size(3) == self.roi_H
+
+                
+                label_tensor = torch.tensor(self.class_map[label] , dtype = torch.long)
+
+
+                return frame_tensor , label_tensor
+        
 class prevention_dataset_val(Dataset):
     """
     map style dataset:
@@ -706,9 +823,12 @@ class custom_concat_dataset(Dataset):
             s += l
         return r
 
-    def __init__(self, datasets: Iterable[Dataset]) -> None:
+    def __init__(self, 
+                 datasets: Iterable[Dataset],
+                 ) -> None:
         super().__init__()
         self.datasets = list(datasets)
+        
         assert len(self.datasets) > 0, 'datasets should not be an empty iterable'  # type: ignore[arg-type]
         for d in self.datasets:
             assert not isinstance(d, IterableDataset), "ConcatDataset does not support IterableDataset"
@@ -801,3 +921,5 @@ if __name__=="__main__":
     data_labels_path = [("/home/iccs/Desktop/isense/events/intention_prediction/processed_data/new_data/recording_03/drive_02/processed_data",
                         "/home/iccs/Desktop/isense/events/intention_prediction/processed_data/new_data/recording_03/drive_02/r3_d2_video.mp4")]
     _segment_video(data_path = data_labels_path)
+
+
