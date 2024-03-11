@@ -385,12 +385,12 @@ class prevention_dataset_train(Dataset):
         
         for i,frame in enumerate(frames):
             try:
-                
-
-                # input(frame.shape)
-                # input(bboxes[i])
-                frame = frame[floor(bboxes[i][2]) - delta_y :ceil(bboxes[i][3]) +delta_y+20 , floor(bboxes[i][0]) -delta_x:ceil(bboxes[i][1])+delta_x ] #crop
-                # input(frame)
+            
+                if bboxes != [-1]*4:
+                    frame = frame[floor(bboxes[i][2]) - delta_y :ceil(bboxes[i][3]) +delta_y+20 , floor(bboxes[i][0]) -delta_x:ceil(bboxes[i][1])+delta_x ] #crop
+         
+                elif bboxes == [-1]*4:
+                    frame = frame
 
                 assert frame.shape[0]> abs(floor(bboxes[i][2]) - delta_y - ceil(bboxes[i][3]) +delta_y+20)
                 assert frame.shape[1]> abs(floor(bboxes[i][0]) -delta_x - ceil(bboxes[i][1])+delta_x)
@@ -450,8 +450,11 @@ class prevention_dataset_train(Dataset):
 
                     
             for x in bboxes_frames: 
-                if x == []: raise Exception("Unexpected bbox dims")
-            if bboxes_frames==[]: raise Exception("Unexpected bbox dims")
+                if x == []: 
+                    x = [-1]*4
+                    # raise Exception("Unexpected bbox dims")
+            if bboxes_frames==[]: 
+                raise Exception("No bboxes detected")
 
             # bboxes_frames = [list(filter(lambda x: x[0]==y, self.gt))[-4:] for y in frames_num]
             
