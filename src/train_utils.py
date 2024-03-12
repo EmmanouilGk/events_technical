@@ -1,5 +1,5 @@
 
-from typing import List
+from typing import List, Union
 from matplotlib import pyplot as plt
 import numpy as np
 from torch import optim
@@ -77,7 +77,7 @@ class linear_warmup():
 def apply_bboxes(frames: List[torch.tensor], 
                  bbox: List[torch.tensor],
                  classes: List[str],
-                 delta_x = None,delta_y=None)->List[List[torch.tensor]]:
+                 delta_x = None,delta_y=None)-> Union[ List[List[torch.tensor]] , List[torch.tensor]]:
     """
     apply bboxes estimated by detectron2 in validation loop 
 

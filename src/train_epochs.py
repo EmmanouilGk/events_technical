@@ -375,7 +375,7 @@ def val_one_epoch_with_detection(*args , **kwargs)->Dict:
                 frames_cropped = apply_bboxes(frames_temp , bboxes ,  pred_classes)  #return MxN frames,where n= frames in segment,M=Detections
             except MyCustomError as I:  #if no bboxes by detectron2
                 print("no bounding boxes detected ... resizing...")
-                frames_temp = np.transpose(frames_temp , (0,2,3,1))
+                frames_temp = np.transpose(frames_temp , (0,2,3,1)) #dhwc
                 frames_cropped = np.array([cv2.resize(x , dsize=(200,200) , interpolation=cv2.INTER_AREA) for x in frames_temp])
             finally:
                 print("continueing")
@@ -398,11 +398,10 @@ def val_one_epoch_with_detection(*args , **kwargs)->Dict:
                         pbar.set_postfix_str("Val Batch loss {:0.2f}".format(loss.item()))
 
                         
-                else:                 #one detection
-                    assert detected_car.size(0)==1 #1 batch
-                    detected_car = torch.tensor(detected_car , dtype=torch.float,device=dev).permute((0,2,0,1))
-
-
+                else:      #one detection
+                    detected_car = torch.stack([torch.tensor(x , dtype=torch.float,device=dev) for x in frames_cropped] , dim = 0)#form segment
+                    detected_car=detected_car.unsqueeze(0)#add batch
+                    detected_car=detected_car.permute((0,4,1,2,3)) #"take from"
                     prediction = model(detected_car)
                 
                     loss = criterion(prediction, maneuver_type)
@@ -421,7 +420,7 @@ def val_one_epoch_with_detection(*args , **kwargs)->Dict:
 
         #convert to int categorical labels
         predictions_epoch=list(map(lambda x: np.argmax(x) , predictions_epoch))
-        labels_epoch=list(map(lambda x: int(x) , labels_epoch))
+        labels_epoch=      list(map(lambda x: int(x) , labels_epoch))
 
         
         acc = accuracy_score(labels_epoch , predictions_epoch)
