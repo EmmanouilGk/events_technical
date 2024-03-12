@@ -6,12 +6,13 @@ import datetime
 from torch.utils.tensorboard import SummaryWriter
 from torch.utils.data import DataLoader
 from tqdm import tqdm
+from detectron2.engine import DefaultPredictor
+
 
 from sklearn.metrics import accuracy_score, balanced_accuracy_score, precision_score,recall_score
 from ..data.data_loader_utils import collate_fn_padding
 
 from ..data.prevention_data_iter import read_frame_from_iter_train, read_frame_from_iter_val
-
 class logging_utils():
     """
     logging helper methods for ML models info and debug
@@ -276,6 +277,72 @@ def val_one_epoch(*args , **kwargs)->Dict:
             frames = frames.to(dev) 
             maneuver_type=maneuver_type.type(torch.LongTensor).to(dev)
             
+
+            prediction = model(frames)
+           
+            loss = criterion(prediction, maneuver_type)
+
+            #to comute eval metrics
+            predictions_epoch.append(prediction.detach().cpu().numpy())
+            labels_epoch.append(maneuver_type.detach().cpu().numpy())
+
+            loss_epoch.append(loss.item())
+       
+            pbar.set_postfix_str("Val Batch loss {:0.2f}".format(loss.item()))
+
+            max_epochs_val+=1
+
+
+
+        #convert to int categorical labels
+        predictions_epoch=list(map(lambda x: np.argmax(x) , predictions_epoch))
+        labels_epoch=list(map(lambda x: int(x) , labels_epoch))
+
+        
+        acc = accuracy_score(labels_epoch , predictions_epoch)
+        bacc = balanced_accuracy_score(labels_epoch , predictions_epoch)
+
+        pres_avg=precision_score(labels_epoch , predictions_epoch , average = "macro")
+        pres_class=precision_score(labels_epoch , predictions_epoch , average = "micro")
+        pres=precision_score(labels_epoch , predictions_epoch , average = "weighted")
+
+        rec =recall_score(labels_epoch , predictions_epoch , average="macro")
+        rec_class = recall_score(labels_epoch , predictions_epoch , average= "micro")
+
+        print(pres_class)
+        return {"loss_val_epoch":np.array(loss_epoch),
+                "val_acc":acc,
+                "val_pres":[pres_avg , pres_class] , 
+                "val_rec":[rec,rec_class] ,
+                "batch_count":max_epochs_val , 
+                "val_pres_global":pres,
+                "val_bacc":bacc}
+
+
+@torch.no_grad
+def val_one_epoch_with_detection(*args , **kwargs)->Dict:
+        """
+        validate one epoch
+        """
+        data_loader = kwargs["dataloader_val"]
+        dev=kwargs["dev"]
+        model = kwargs["model"].to(dev)
+        criterion = kwargs["criterion"]
+        detector: DefaultPredictor = kwargs["detector"]
+
+        loss_epoch = []
+        predictions_epoch = []
+        labels_epoch = []
+        max_epochs_val = 0
+        
+        for batch_idx , (frames , maneuver_type) in (pbar:=tqdm(enumerate(data_loader))): 
+            pbar.set_description_str("Val Batch: {}".format(batch_idx))
+            
+            frames = frames.to(dev) 
+            maneuver_type=maneuver_type.type(torch.LongTensor).to(dev)
+            
+            output_predictor = detector(frames)
+            input("output detector instances are ".format(output_predictor["instances"]))
 
             prediction = model(frames)
            

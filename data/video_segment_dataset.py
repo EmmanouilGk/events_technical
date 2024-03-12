@@ -454,20 +454,30 @@ class prevention_dataset_train(Dataset):
                         
 
             no_crop=False
-                    
+            counter_missing=0
             for i,x in enumerate(bboxes_frames): 
-                if x == []: 
+                if x == [] :
+                    counter_missing+=1
                     bboxes_frames[i] = [-1]*4
 
+                else:
+                    counter_missing=0
+                
+                
                     # raise Exception("Unexpected bbox dims")
 
-            if bboxes_frames==[]: 
-                frames_cropped = frames
-                no_crop=True
-                raise Exception("No bboxes detected")
-            
             frame_stack = [cv2.imread(x) for x in segment_paths]
 
+            if bboxes_frames==[]: 
+                frames_cropped = frame_stack
+                no_crop=True
+                # raise Exception("No bboxes detected")
+
+            if counter_missing>5:
+                    raise Exception("Detected more 5 frames missing, Interpolating ...")
+                    self._interpolate_frames(frame_stack , bboxes_frames)
+                
+            
             if not no_crop:
                 frames_cropped = self.crop_frames(frame_stack , bboxes_frames)
 
@@ -502,7 +512,29 @@ class prevention_dataset_train(Dataset):
 
             return frame_tensor , label_tensor
         
-        
+    def _interpolate_frames(frame_stack:List[torch.tensor],
+                            bboxes_frames:List[torch.tensor],
+                            h:int,
+                            w:int,
+                            delta_x:int , delta_y:int)->List[torch.tensor]:
+        """
+        Interpolate bbox for missing bbox annotaitons.
+        For small intervals (5 frames) consider linear interpolation
+        """
+        frame_out = []
+        for i, frame , bbox in enumerate(zip(frame_stack , bboxes_frames)):
+
+            if bbox == [] and i>5:
+
+                y_pred = 2*bbox[i-1][3] - bbox[i-2][1]  #linear extrapolant 
+                x_pred = 2*bbox[i-1][1] - bbox[i-2][1]
+
+                frame = frame[y_pred - delta_y , y_pred + h + delta_y +20 : x_pred - delta_x , x_pred + delta_x]
+            
+            frame_out.append(frame)
+
+        return frame_out  
+
     def __len__(self):
         
         return len(self.data)
@@ -512,6 +544,9 @@ class prevention_dataset_train(Dataset):
         return self.weights 
     
     def test_stuff(self,):
+            """
+            testing routing for debugging branch--not implemented
+            """
             input("Total ds lenght is :{}".format(len(self.data)))
             for index in range(len(self.data)):
                 segment_paths , label ,id_car= self.data[index]
