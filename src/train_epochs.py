@@ -3,9 +3,11 @@ from typing import Dict, Optional
 import numpy as np
 import torch
 from torch.torch_version import TorchVersion
-
+from torchvision.transforms import Resize
+from train_utils import MyCustomError
 from intention_prediction.src.train_utils import apply_bboxes
 from ..conf.conf_py import _PADDED_FRAMES
+import cv2
 import datetime
 from torch.utils.tensorboard import SummaryWriter
 from torch.utils.data import DataLoader
@@ -353,18 +355,27 @@ def val_one_epoch_with_detection(*args , **kwargs)->Dict:
             frames_temp = []
             for x in range(frames.size(2)):
                 frames_temp.append(frames[0, : ,  x ,: , :])
-            frames_temp = np.array(frames_temp)
+                assert frames[0, : ,  x ,: , :].size(0)==3
+
+            frames_temp = np.array([np.array(x.detach().cpu()) for x in frames_temp])
 
             bboxes = []
             pred_classes = []
-            for frame in frames:
-                bboxes.append(detector(frames_temp)["instances"]["pred_boxes"])
-                pred_classes.append(detector(frames_temp)["instances"]["pred_classes"])
+            for frame in frames_temp:
+                frame = np.transpose(frame , (1,2,0))
+                assert frame.shape[2]==3 and frame.shape[0]>0 and frame.shape[1]>0
+                frame = cv2.cvtColor(frame , cv2.COLOR_RGB2BGR)
+                bboxes.append(detector(frame)["instances"].pred_boxes)
+                pred_classes.append(detector(frame)["instances"].pred_classes)
             bboxes = torch.tensor(bboxes)
+            try:
 
-            frames_cropped = apply_bboxes(frames_temp , bboxes ,  pred_classes)  #return MxN frames,where n= frames in segment,M=Detections
+                frames_cropped = apply_bboxes(frames_temp , bboxes ,  pred_classes)  #return MxN frames,where n= frames in segment,M=Detections
+            except MyCustomError as I:
+                print("no bounding boxes detected ... resizing...")
                 
-
+                frames_cropped = Resize(200 , 200 )(frames_temp)
+                
             for detected_car in frames_cropped:
 
                 prediction = model(detected_car)

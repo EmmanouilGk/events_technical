@@ -84,17 +84,27 @@ def apply_bboxes(frames: List[torch.tensor],
     """
 
     frame_out = []
-    for frame , bboxes ,  classes in zip(frames , bbox, classes):
-        if bboxes ==[] and classes=="car":raise Exception("Found empty bboxes for class car object ... terminating")
+    for frame , bboxes ,  class_detect in zip(frames , bbox, classes): #for all frames in current segment, and all bbox list on same segment
+        if bboxes ==[] :raise MyCustomError("Found empty bboxes for class car object ... terminating")
         if bboxes!=[]:
+            frame_temp=[]
             for bbox in bboxes:
                 frame_temp= []
-                if classes !="car" and delta_x == None and delta_y==None:
+                print("Detected class is {}".format(class_detect))
+                if class_detect =="car" and delta_x == None and delta_y==None:
             
                     frame = frame[bboxes[1] :bboxes[1]+bboxes[3] , bboxes[2]:bboxes[2]+bboxes[4]]
 
                 frame_temp.append(frame)
 
+            frame_temp =torch.tensor(frame_temp)
             frame_out.append(frame_temp)
 
-    return torch.tensor(frame_out)
+
+    frame_out = torch.tensor(frame_out)
+    return torch.tensor(frame_out).unsqueeze(0)
+
+class MyCustomError(Exception):
+    def __init__(self, message=None):
+        self.message = message
+        super().__init__(message)
