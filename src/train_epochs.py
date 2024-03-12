@@ -4,7 +4,7 @@ import numpy as np
 import torch
 from torch.torch_version import TorchVersion
 from torchvision.transforms import Resize
-from train_utils import MyCustomError
+from .train_utils import MyCustomError
 from intention_prediction.src.train_utils import apply_bboxes
 from ..conf.conf_py import _PADDED_FRAMES
 import cv2
@@ -359,38 +359,63 @@ def val_one_epoch_with_detection(*args , **kwargs)->Dict:
 
             frames_temp = np.array([np.array(x.detach().cpu()) for x in frames_temp])
 
+            #find bboxes by detectron2
             bboxes = []
             pred_classes = []
             for frame in frames_temp:
+
                 frame = np.transpose(frame , (1,2,0))
                 assert frame.shape[2]==3 and frame.shape[0]>0 and frame.shape[1]>0
                 frame = cv2.cvtColor(frame , cv2.COLOR_RGB2BGR)
                 bboxes.append(detector(frame)["instances"].pred_boxes)
                 pred_classes.append(detector(frame)["instances"].pred_classes)
             bboxes = torch.tensor(bboxes)
+
             try:
-
                 frames_cropped = apply_bboxes(frames_temp , bboxes ,  pred_classes)  #return MxN frames,where n= frames in segment,M=Detections
-            except MyCustomError as I:
+            except MyCustomError as I:  #if no bboxes by detectron2
                 print("no bounding boxes detected ... resizing...")
-                
-                frames_cropped = Resize(200 , 200 )(frames_temp)
-                
+                frames_temp = np.transpose(frames_temp , (0,2,3,1))
+                frames_cropped = np.array([cv2.resize(x , dsize=(200,200) , interpolation=cv2.INTER_AREA) for x in frames_temp])
+            finally:
+                print("continueing")
+
+            #loop over frame, detections-could be multiple
             for detected_car in frames_cropped:
+                if isinstance(detected_car,list): ##means there are multiple detections in that frame
+                    for detection in detected_car:
+                        detected_car = torch.tensor(detection , dtype=torch.float,device=dev).permute((2,0,1))
+                        prediction = model(detected_car)
+                
+                        loss = criterion(prediction, maneuver_type)
 
-                prediction = model(detected_car)
+                        #to comute eval metrics
+                        predictions_epoch.append(prediction.detach().cpu().numpy())
+                        labels_epoch.append(maneuver_type.detach().cpu().numpy())
+
+                        loss_epoch.append(loss.item())
+                
+                        pbar.set_postfix_str("Val Batch loss {:0.2f}".format(loss.item()))
+
+                        
+                else:                 #one detection
+                    assert detected_car.size(0)==1 #1 batch
+                    detected_car = torch.tensor(detected_car , dtype=torch.float,device=dev).permute((0,2,0,1))
+
+
+                    prediction = model(detected_car)
+                
+                    loss = criterion(prediction, maneuver_type)
+
+                    #to comute eval metrics
+                    predictions_epoch.append(prediction.detach().cpu().numpy())
+                    labels_epoch.append(maneuver_type.detach().cpu().numpy())
+
+                    loss_epoch.append(loss.item())
             
-                loss = criterion(prediction, maneuver_type)
+                    pbar.set_postfix_str("Val Batch loss {:0.2f}".format(loss.item()))
 
-                #to comute eval metrics
-                predictions_epoch.append(prediction.detach().cpu().numpy())
-                labels_epoch.append(maneuver_type.detach().cpu().numpy())
-
-                loss_epoch.append(loss.item())
-        
-                pbar.set_postfix_str("Val Batch loss {:0.2f}".format(loss.item()))
-
-                max_epochs_val+=1
+                    max_epochs_val+=1
 
 
 

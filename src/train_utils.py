@@ -1,6 +1,7 @@
 
 from typing import List
 from matplotlib import pyplot as plt
+import numpy as np
 from torch import optim
 import torch
 
@@ -84,25 +85,32 @@ def apply_bboxes(frames: List[torch.tensor],
     """
 
     frame_out = []
-    for frame , bboxes ,  class_detect in zip(frames , bbox, classes): #for all frames in current segment, and all bbox list on same segment
-        if bboxes ==[] :raise MyCustomError("Found empty bboxes for class car object ... terminating")
-        if bboxes!=[]:
-            frame_temp=[]
-            for bbox in bboxes:
-                frame_temp= []
-                print("Detected class is {}".format(class_detect))
-                if class_detect =="car" and delta_x == None and delta_y==None:
+    if not torch.any(bbox.view(-1)):
+        raise MyCustomError("Found empty bboxes for frame stack ... terminating")
+    else:
+        for frame , bboxes ,  class_detect in zip(frames , bbox, classes): #for all frames in current segment, and all bbox list on same segment
             
-                    frame = frame[bboxes[1] :bboxes[1]+bboxes[3] , bboxes[2]:bboxes[2]+bboxes[4]]
+            if len(bboxes.size()) == 0 :
+                raise MyCustomError("Found empty bboxes for singular frme of video segment stack ... terminating/inteprolate?") 
+                
+            else:
+                frame_temp=[]
+                for bbox in bboxes:
+                    frame_temp= []
+                    print("Detected class is {}".format(class_detect))
+                    if class_detect =="car" and delta_x == None and delta_y==None:
+                
+                        frame = frame[bboxes[1] :bboxes[1]+bboxes[3] , bboxes[2]:bboxes[2]+bboxes[4]]
 
-                frame_temp.append(frame)
-
-            frame_temp =torch.tensor(frame_temp)
-            frame_out.append(frame_temp)
+                    frame_temp.append(frame)
 
 
-    frame_out = torch.tensor(frame_out)
-    return torch.tensor(frame_out).unsqueeze(0)
+                frame_temp =torch.tensor(frame_temp)
+                frame_out.append(frame_temp)
+
+
+        frame_out = torch.tensor(frame_out)
+        return torch.tensor(frame_out).unsqueeze(0)
 
 class MyCustomError(Exception):
     def __init__(self, message=None):
