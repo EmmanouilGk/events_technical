@@ -2,12 +2,16 @@ import contextlib
 from typing import Dict, Optional
 import numpy as np
 import torch
+from torch.torch_version import TorchVersion
+
+from intention_prediction.src.train_utils import apply_bboxes
+from ..conf.conf_py import _PADDED_FRAMES
 import datetime
 from torch.utils.tensorboard import SummaryWriter
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 from detectron2.engine import DefaultPredictor
-
+import torchvision
 
 from sklearn.metrics import accuracy_score, balanced_accuracy_score, precision_score,recall_score
 from ..data.data_loader_utils import collate_fn_padding
@@ -154,7 +158,7 @@ def train(*args,**kwargs):
         
         save_model(epoch,model,optimizer,kwargs["model_save_path"] , losses_dict = losses_dict)
 
-        val_losses_dict = val_one_epoch(*args, **kwargs)  #vla losses dict
+        val_losses_dict = val_one_epoch_with_detection(*args, **kwargs)  #vla losses dict
         
         _write_val_values(val_losses_dict=val_losses_dict , writer=writer,epoch=epoch,losses_dict=losses_dict)
 
@@ -197,7 +201,7 @@ def train_one_epoch(*args , **kwargs):
         predictions_epoch=[]
         labels_epoch=[]
         
-
+        s =  0
         for batch_idx , (frames , maneuver_type) in (pbar:=tqdm(enumerate(data_loader))): 
 
             pbar.set_description_str("Train Batch: {}".format(batch_idx))
@@ -224,7 +228,8 @@ def train_one_epoch(*args , **kwargs):
                 max_batches+=1
                 writer.add_scalar("Online batch loss-During update ", loss_epoch[-1] , batch_idx)
 
-
+            s+=1
+            if s ==1:break
             pbar.set_postfix_str("Batch loss {:0.2f}".format(loss.item()))
 
             predictions_epoch.append(prediction.detach().cpu().numpy())
@@ -340,23 +345,41 @@ def val_one_epoch_with_detection(*args , **kwargs)->Dict:
             
             frames = frames.to(dev) 
             maneuver_type=maneuver_type.type(torch.LongTensor).to(dev)
+
+            assert frames.size(1)==3 and frames.size(2)==_PADDED_FRAMES,"Unexpected channels/stacking"
+            print("frame size {} ".format(frames[:,:,0,:,:].shape)) 
+
+            print(detector.model)
+            frames_temp = []
+            for x in range(frames.size(2)):
+                frames_temp.append(frames[0, : ,  x ,: , :])
+            frames_temp = np.array(frames_temp)
+
+            bboxes = []
+            pred_classes = []
+            for frame in frames:
+                bboxes.append(detector(frames_temp)["instances"]["pred_boxes"])
+                pred_classes.append(detector(frames_temp)["instances"]["pred_classes"])
+            bboxes = torch.tensor(bboxes)
+
+            frames_cropped = apply_bboxes(frames_temp , bboxes ,  pred_classes)  #return MxN frames,where n= frames in segment,M=Detections
+                
+
+            for detected_car in frames_cropped:
+
+                prediction = model(detected_car)
             
-            output_predictor = detector(frames)
-            input("output detector instances are ".format(output_predictor["instances"]))
+                loss = criterion(prediction, maneuver_type)
 
-            prediction = model(frames)
-           
-            loss = criterion(prediction, maneuver_type)
+                #to comute eval metrics
+                predictions_epoch.append(prediction.detach().cpu().numpy())
+                labels_epoch.append(maneuver_type.detach().cpu().numpy())
 
-            #to comute eval metrics
-            predictions_epoch.append(prediction.detach().cpu().numpy())
-            labels_epoch.append(maneuver_type.detach().cpu().numpy())
+                loss_epoch.append(loss.item())
+        
+                pbar.set_postfix_str("Val Batch loss {:0.2f}".format(loss.item()))
 
-            loss_epoch.append(loss.item())
-       
-            pbar.set_postfix_str("Val Batch loss {:0.2f}".format(loss.item()))
-
-            max_epochs_val+=1
+                max_epochs_val+=1
 
 
 

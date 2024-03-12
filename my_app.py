@@ -4,6 +4,10 @@ from hydra.utils import instantiate
 import logging
 from omegaconf import DictConfig
 import datetime
+
+from detectron2.engine import DefaultPredictor
+from detectron2.config import get_cfg
+
 import os
 from os.path import join
 from torch.utils.data import DataLoader
@@ -168,6 +172,23 @@ def my_app(cfg: DictConfig):
 
     dev = torch.device("cuda:0")
 
+    cfgd = get_cfg()
+    # add_deeplab_config(cfg)
+    # add_maskformer2_config(cfg)
+
+    cfgd_str= "/home/iccs/Desktop/isense/hidrive/working/detectron2/configs/COCO-InstanceSegmentation/mask_rcnn_R_50_C4_1x.yaml"
+        
+    cfgd_model_path = "https://dl.fbaipublicfiles.com/detectron2/COCO-InstanceSegmentation/mask_rcnn_R_50_C4_1x/137259246/model_final_9243eb.pkl"
+    cfgd.merge_from_file(cfgd_str)
+
+    cfgd.MODEL.WEIGHTS =cfgd_model_path
+    
+    # cfg.MODEL.MASK_FORMER.TEST.SEMANTIC_ON = True
+    
+    cfgd.MODEL.DEVICE="cuda"
+
+    detector = DefaultPredictor(cfgd)
+
     #==============================================================TRAIN-VAL-TEST================================================================
     name="r53r41_r2_1"
     writer = SummaryWriter(log_dir= "/home/iccs/Desktop/isense/events/intention_prediction/logs/run_{}-{}".format(now:=datetime.datetime.now(),name) )
@@ -188,6 +209,7 @@ def my_app(cfg: DictConfig):
                 load_saved_model ="/home/iccs/Desktop/isense/events/intention_prediction/models/weights/train_01_03_05_r53r41_r2_1_b.pt",
                 num_iterations_gr_accum = 5,
                 log_dict = {"lr":0.003},
+                detector = detector
                 )
         
     

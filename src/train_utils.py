@@ -1,6 +1,8 @@
 
+from typing import List
 from matplotlib import pyplot as plt
 from torch import optim
+import torch
 
 def bisect_right(a, x, lo=0, hi=None, *, key=None):
     """Return the index where to insert item x in list a, assuming a is sorted.
@@ -71,3 +73,28 @@ class linear_warmup():
        
         self.optimizer.step()
         
+def apply_bboxes(frames: List[torch.tensor], 
+                 bbox: List[torch.tensor],
+                 classes: List[str],
+                 delta_x = None,delta_y=None)->List[List[torch.tensor]]:
+    """
+    apply bboxes estimated by detectron2 in validation loop 
+
+    Return list of N lsits (=segment length) of M tensors (m = detections) , only car detection considered
+    """
+
+    frame_out = []
+    for frame , bboxes ,  classes in zip(frames , bbox, classes):
+        if bboxes ==[] and classes=="car":raise Exception("Found empty bboxes for class car object ... terminating")
+        if bboxes!=[]:
+            for bbox in bboxes:
+                frame_temp= []
+                if classes !="car" and delta_x == None and delta_y==None:
+            
+                    frame = frame[bboxes[1] :bboxes[1]+bboxes[3] , bboxes[2]:bboxes[2]+bboxes[4]]
+
+                frame_temp.append(frame)
+
+            frame_out.append(frame_temp)
+
+    return torch.tensor(frame_out)
