@@ -180,7 +180,7 @@ def my_app(cfg: DictConfig):
         
     cfgd_model_path = "https://dl.fbaipublicfiles.com/detectron2/COCO-InstanceSegmentation/mask_rcnn_R_50_C4_1x/137259246/model_final_9243eb.pkl"
     cfgd.merge_from_file(cfgd_str)
-
+    
     cfgd.MODEL.WEIGHTS =cfgd_model_path
     
     # cfg.MODEL.MASK_FORMER.TEST.SEMANTIC_ON = True

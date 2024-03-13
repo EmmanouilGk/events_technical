@@ -1,10 +1,10 @@
 
-from typing import List, Union
+from typing import List, Optional, Union
 from matplotlib import pyplot as plt
 import numpy as np
 from torch import optim
 import torch
-
+from detectron2.structures import Boxes
 def bisect_right(a, x, lo=0, hi=None, *, key=None):
     """Return the index where to insert item x in list a, assuming a is sorted.
 
@@ -75,44 +75,63 @@ class linear_warmup():
         self.optimizer.step()
         
 def apply_bboxes(frames: List[torch.tensor], 
-                 bbox: List[torch.tensor],
+                 bbox: List[Boxes],
                  classes: List[str],
+                 conf:List,
                  delta_x = None,delta_y=None)-> Union[ List[List[torch.tensor]] , List[torch.tensor]]:
     """
     apply bboxes estimated by detectron2 in validation loop 
 
-    Return list of N lsits (=segment length) of M tensors (m = detections) , only car detection considered
+    Return list of 1 (=segment length) of M tensors (m = detections) , only car detection considered
     """
-
+    assert isinstance(bbox, list),"Excepcted bbox lsit per frame, got{}".format(type(bbox))
+    len_bboxes = len(bbox)
     frame_out = []
-    if not torch.any(bbox.view(-1)):
+
+    if all(list(map(lambda x : x == [] , bbox))):  #recheck
         raise MyCustomError("Found empty bboxes for frame stack ... terminating")
     else:
-        for frame , bboxes ,  class_detect in zip(frames , bbox, classes): #for all frames in current segment, and all bbox list on same segment
+
+        
+        for idx, (frame , bboxes ,  class_detect , conf) in enumerate(zip(frames , bbox, classes , conf)): #for all frames in current segment, and all bbox list on same segment
             
-            if len(bboxes.size()) == 0 :
+            _nonempty_mask = bboxes.nonempty(threshold=0.0)
+
+            if not any(_nonempty_mask):  #if no boxes found in frame - caught by wrrapper func
                 raise MyCustomError("Found empty bboxes for singular frme of video segment stack ... terminating/inteprolate?") 
                 
-            else:
+            elif any(_nonempty_mask):
                 frame_temp=[]
-                for bbox in bboxes:
-                    frame_temp= []
-                    print("Detected class is {}".format(class_detect))
-                    if class_detect =="car" and delta_x == None and delta_y==None:
-                
-                        frame = frame[bboxes[1] :bboxes[1]+bboxes[3] , bboxes[2]:bboxes[2]+bboxes[4]]
+                for i ,(bbox,clas, confidences) in enumerate(zip(bboxes ,class_detect, conf)):   #tuple bbox and conf in single frame-can be many
+                    if _nonempty_mask[i]==1:
+                        frame_temp= []
+                        print("Detected class is {}".format(clas))
+                        if  check_detections_category(clas)!=None and delta_x == None and delta_y==None and confidences>0.5: #prediction conf of single detection at image == frame
+                            input(bboxes)
+                            frame = frame[bboxes[1] :bboxes[1]+bboxes[3] , bboxes[2]:bboxes[2]+bboxes[4]]
 
-                    frame_temp.append(frame)
+                        frame_temp.append(frame)
+                    else:
+                        raise MyCustomError("Found empty box inside frame of otherwise correct detections")
 
 
                 frame_temp =torch.tensor(frame_temp)
                 frame_out.append(frame_temp)
 
-
-        frame_out = torch.tensor(frame_out)
+        try:
+            frame_out = torch.tensor(frame_out)
+        except:
+            raise MyCustomError("detected objects dont pass threshold")
         return torch.tensor(frame_out).unsqueeze(0)
 
 class MyCustomError(Exception):
     def __init__(self, message=None):
         self.message = message
         super().__init__(message)
+
+
+def check_detections_category(idx:int)->Optional[str]:
+    for k,v  in {"car":3 , 'motorcycle':4, 'truck': 8 ,'bus':6}.items():
+        if idx==v:return k
+
+    return None

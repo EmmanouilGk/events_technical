@@ -1,9 +1,12 @@
+import os
 import contextlib
 from typing import Dict, Optional
+from detectron2.data.catalog import MetadataCatalog
 import numpy as np
 import torch
 from torch.torch_version import TorchVersion
 from torchvision.transforms import Resize
+from detectron2.config import get_cfg
 from .train_utils import MyCustomError
 from intention_prediction.src.train_utils import apply_bboxes
 from ..conf.conf_py import _PADDED_FRAMES
@@ -14,6 +17,8 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 from detectron2.engine import DefaultPredictor
 import torchvision
+from detectron2.utils.visualizer import Visualizer, ColorMode
+
 
 from sklearn.metrics import accuracy_score, balanced_accuracy_score, precision_score,recall_score
 from ..data.data_loader_utils import collate_fn_padding
@@ -362,17 +367,42 @@ def val_one_epoch_with_detection(*args , **kwargs)->Dict:
             #find bboxes by detectron2
             bboxes = []
             pred_classes = []
-            for frame in frames_temp:
-
-                frame = np.transpose(frame , (1,2,0))
+            conf=[]
+            for i,frame in enumerate(frames_temp):
+                
+                frame = np.transpose(frame , (1,2,0))*255.0
+                
                 assert frame.shape[2]==3 and frame.shape[0]>0 and frame.shape[1]>0
-                frame = cv2.cvtColor(frame , cv2.COLOR_RGB2BGR)
-                bboxes.append(detector(frame)["instances"].pred_boxes)
-                pred_classes.append(detector(frame)["instances"].pred_classes)
-            bboxes = torch.tensor(bboxes)
+                # frame = cv2.cvtColor(frame , cv2.COLOR_RGB2BGR)
+                bboxes.append(box :=detector(frame)["instances"].pred_boxes)
+                
+                
+                v = Visualizer(frame)
+                out = v.draw_instance_predictions(detector(frame)["instances"].to("cpu"))
 
+                cv2.imwrite(filename=os.path.join("/home/iccs/Desktop/isense/events/intention_prediction/debug/","test_image{}.png".format(i)) ,
+                            img = frame)
+                cv2.imwrite(filename=os.path.join("/home/iccs/Desktop/isense/events/intention_prediction/debug/","test_img_with_detections_{}.png".format(i)) ,
+                            img=out.get_image()[:,:, ], )
+                
+
+                pred_classes.append(detector(frame)["instances"].pred_classes)
+                conf.append(detector(frame)["instances"].scores)
+
+                print("Bbox type:{}".format(type(bboxes[-1])))
+
+            ##apply bboxes to frames of segment.
             try:
-                frames_cropped = apply_bboxes(frames_temp , bboxes ,  pred_classes)  #return MxN frames,where n= frames in segment,M=Detections
+
+                frames_cropped = apply_bboxes(frames_temp , bboxes ,  pred_classes , conf)  #return MxN frames,where n= frames in segment,M=Detections
+
+
+                for j,i in enumerate(frames_cropped):
+                    out = v.draw_instance_predictions(detector(i)["instances"].to("cpu"))
+
+                    cv2.imwrite(filename=os.path.join("/home/iccs/Desktop/isense/events/intention_prediction/debug/","test_img_with_detections_{}_after_crop.png".format(i)) ,
+                            img=out.get_image()[:,:, ], )
+            
             except MyCustomError as I:  #if no bboxes by detectron2
                 print("no bounding boxes detected ... resizing...")
                 frames_temp = np.transpose(frames_temp , (0,2,3,1)) #dhwc
@@ -399,11 +429,16 @@ def val_one_epoch_with_detection(*args , **kwargs)->Dict:
 
                         
                 else:      #one detection
+                    
+                    
+
                     detected_car = torch.stack([torch.tensor(x , dtype=torch.float,device=dev) for x in frames_cropped] , dim = 0)#form segment
                     detected_car=detected_car.unsqueeze(0)#add batch
-                    detected_car=detected_car.permute((0,4,1,2,3)) #"take from"
+                    detected_car=detected_car.permute((0,4,1,2,3)) # permute[j]->"take from dim i"
+
                     prediction = model(detected_car)
-                
+
+
                     loss = criterion(prediction, maneuver_type)
 
                     #to comute eval metrics
@@ -420,7 +455,7 @@ def val_one_epoch_with_detection(*args , **kwargs)->Dict:
 
         #convert to int categorical labels
         predictions_epoch=list(map(lambda x: np.argmax(x) , predictions_epoch))
-        labels_epoch=      list(map(lambda x: int(x) , labels_epoch))
+        labels_epoch=     list(map(lambda x: int(x) , labels_epoch))
 
         
         acc = accuracy_score(labels_epoch , predictions_epoch)
