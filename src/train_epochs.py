@@ -364,6 +364,10 @@ def val_one_epoch_with_detection(*args , **kwargs)->Dict:
 
             frames_temp = np.array([np.array(x.detach().cpu()) for x in frames_temp])
 
+            for frame in frames_temp:
+                
+                assert frame is not None and frame!=[]
+
             #find bboxes by detectron2
             bboxes = []
             pred_classes = []
@@ -393,22 +397,25 @@ def val_one_epoch_with_detection(*args , **kwargs)->Dict:
 
             ##apply bboxes to frames of segment.
             try:
-
+                assert len(frames_temp)>0
                 frames_cropped = apply_bboxes(frames_temp , bboxes ,  pred_classes , conf)  #return MxN frames,where n= frames in segment,M=Detections
 
 
                 for j,i in enumerate(frames_cropped):
-                    out = v.draw_instance_predictions(detector(i)["instances"].to("cpu"))
+                    out = v.draw_instance_predictions(detector(i.detach().cpu().numpy()[:,:,::-1])["instances"].to("cpu"))
 
                     cv2.imwrite(filename=os.path.join("/home/iccs/Desktop/isense/events/intention_prediction/debug/","test_img_with_detections_{}_after_crop.png".format(i)) ,
-                            img=out.get_image()[:,:, ], )
+                            img=out.get_image()[:,:,::-1], )
             
             except MyCustomError as I:  #if no bboxes by detectron2
                 print("no bounding boxes detected ... resizing...")
                 frames_temp = np.transpose(frames_temp , (0,2,3,1)) #dhwc
                 frames_cropped = np.array([cv2.resize(x , dsize=(200,200) , interpolation=cv2.INTER_AREA) for x in frames_temp])
+            except AssertionError as a:
+                raise AssertionError("Wrong len frames")
             finally:
                 print("continueing")
+
 
             #loop over frame, detections-could be multiple
             for detected_car in frames_cropped:

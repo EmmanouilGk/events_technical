@@ -1,5 +1,6 @@
 
-from typing import List, Optional, Union
+import cv2
+from typing import Callable, List, Optional, Union
 from matplotlib import pyplot as plt
 import numpy as np
 from torch import optim
@@ -73,6 +74,15 @@ class linear_warmup():
             p['lr'] = lr
        
         self.optimizer.step()
+
+# def sort_torch_iterable_by_key(tensor_obj: torch.tensor, 
+#                                key_obj: Callable)->Tuple[torch.tensor , Callable]:
+    
+    
+
+#     tensor_key_tuple = list(zip(tensor , key))
+
+
         
 def apply_bboxes(frames: List[torch.tensor], 
                  bbox: List[Boxes],
@@ -95,36 +105,66 @@ def apply_bboxes(frames: List[torch.tensor],
         
         for idx, (frame , bboxes ,  class_detect , conf) in enumerate(zip(frames , bbox, classes , conf)): #for all frames in current segment, and all bbox list on same segment
             
+            bboxes:torch.tensor
+            assert frame is not None and frame!=[]
             _nonempty_mask = bboxes.nonempty(threshold=0.0)
 
             if not any(_nonempty_mask):  #if no boxes found in frame - caught by wrrapper func
-                raise MyCustomError("Found empty bboxes for singular frme of video segment stack ... terminating/inteprolate?") 
+                frame_out.append(cv2.resize(frame, dsize=(200,200) , interpolation=cv2.INTER_AREA))
+                # raise MyCustomError("Found empty bboxes for singular frme of video segment stack ... terminating/inteprolate?") 
                 
             elif any(_nonempty_mask):
-                frame_temp=[]
-                for i ,(bbox,clas, confidences) in enumerate(zip(bboxes ,class_detect, conf)):   #tuple bbox and conf in single frame-can be many
-                    if _nonempty_mask[i]==1:
-                        frame_temp= []
-                        print("Detected class is {}".format(clas))
-                        if  check_detections_category(clas)!=None and delta_x == None and delta_y==None and confidences>0.5: #prediction conf of single detection at image == frame
-                            input(bboxes)
-                            frame = frame[bboxes[1] :bboxes[1]+bboxes[3] , bboxes[2]:bboxes[2]+bboxes[4]]
+                detections = 0
+                max_detections=4
+                detections_vect = zip( bboxes , conf)
 
-                        frame_temp.append(frame)
+                detections = (sorted(detections_vect , key = lambda x : x[1]))[:max_detections]
+
+                _nonempty_mask_sorted = detections[0].nonempty()
+
+
+                for i ,(bbox, confidences) in enumerate(detections_vect):   #tuple bbox and conf in single frame-can be many
+                    frame_temp=[]
+                    frame_temp_copy= []
+                    if _nonempty_mask_sorted[i]==1:
+                        
+                        #first value->highest score corresponding to detected class
+                        print("Detected class is {} with confidence {}".format(clas,conf))
+
+                        #check if detection is member of class (car,bus,truck) and prediction conf is high
+                        if  check_detections_category(clas)!=None and delta_x == None and delta_y==None and confidences>0.8: #prediction conf of single detection at image == frame
+                            
+                            frame_temp_copy = frame.copy()
+                            input(bbox)
+                            frame_temp_copy = frame_temp_copy[bbox[2] :bbox[3] , bbox[0]:bbox[1]]
+
+                        else:
+                            frame_temp_copy = frame.copy()
+                            frame_temp_copy = cv2.resize(frame_temp_copy,dsize=(200,200),interpolation=cv2.INTER_AREA)
+
+                        frame_temp.append(torch.tensor(frame_temp_copy))
                     else:
-                        raise MyCustomError("Found empty box inside frame of otherwise correct detections")
+                        # raise NotImplementedError
+                        frame_temp.append(torch.tensor(frame))
 
 
-                frame_temp =torch.tensor(frame_temp)
-                frame_out.append(frame_temp)
+                    frame_temp = torch.stack([x for x in frame_temp])
+                    frame_out.append(frame_temp)
 
         try:
             frame_out = torch.tensor(frame_out)
-        except:
+        except ValueError as e:
+            frame_out=torch.stack([x for x in frame_out])
+        except Exception as e:
             raise MyCustomError("detected objects dont pass threshold")
-        return torch.tensor(frame_out).unsqueeze(0)
+        return frame_out.unsqueeze(0)
 
 class MyCustomError(Exception):
+    def __init__(self, message=None):
+        self.message = message
+        super().__init__(message)
+
+class NoBBOXFrame(Exception):
     def __init__(self, message=None):
         self.message = message
         super().__init__(message)
