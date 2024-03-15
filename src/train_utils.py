@@ -6,6 +6,23 @@ import numpy as np
 from torch import optim
 import torch
 from detectron2.structures import Boxes
+
+def custom_err_handler(f):
+    """
+    custom err handling decorator
+    """
+    def wrapper(*args , **kwargs):
+        try:
+            f(*args , **kwargs)
+        except ValueError as v:
+            traceback.print_exc()
+        except Exception as err:
+            print(f"Unexpected {err=}, {type(err)=}")
+            raise
+    return wrapper
+
+
+
 def bisect_right(a, x, lo=0, hi=None, *, key=None):
     """Return the index where to insert item x in list a, assuming a is sorted.
 
@@ -81,6 +98,25 @@ class linear_warmup():
     
 
 #     tensor_key_tuple = list(zip(tensor , key))
+
+def apply_bboxes_single(frames: List[np.array] , bboxes: List[Boxes],classes: List[str] , conf:List, delta_x = None , delta_y=None)->List[torch.tensor]:
+        """
+        apply one bbox for each frame-assumming 1st result of detectron2 will correspond to car making maneuver.
+        """
+        frame_seg=[]
+        for frame ,bbox in zip(frames,bboxes):
+            
+            if bbox.tensor.numel()!=0:
+                    bbox = list(map(lambda x: int(x), bbox.tensor[0]))
+                    frame = frame[:,bbox[1] :bbox[3] , bbox[0]:bbox[2]]
+            else:
+                raise NotImplementedError
+            
+            frame_seg.append(frame)
+
+
+        return frame_seg
+
 
 
         

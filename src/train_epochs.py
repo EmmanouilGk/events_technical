@@ -1,7 +1,9 @@
 import os
 import contextlib
 from typing import Dict, Optional
+import traceback
 from detectron2.data.catalog import MetadataCatalog
+from detectron2.structures import Boxes
 import numpy as np
 import torch
 from torch.torch_version import TorchVersion
@@ -9,6 +11,7 @@ from torchvision.transforms import Resize
 from detectron2.config import get_cfg
 from .train_utils import MyCustomError
 from intention_prediction.src.train_utils import apply_bboxes
+from intention_prediction.src.train_utils import apply_bboxes_single
 from ..conf.conf_py import _PADDED_FRAMES
 import cv2
 import datetime
@@ -159,13 +162,13 @@ def train(*args,**kwargs):
     for epoch in  range(0 , max_epochs-current_epoch):
 
         #train and val
-        losses_dict = train_one_epoch(*args , **kwargs)   #train losses dict
+        # losses_dict = train_one_epoch(*args , **kwargs)   #train losses dict
 
-        _write_val_values(val_losses_dict= losses_dict , writer=writer,epoch=epoch,losses_dict=losses_dict)
+        # _write_val_values(val_losses_dict= losses_dict , writer=writer,epoch=epoch,losses_dict=losses_dict)
         
-        save_model(epoch,model,optimizer,kwargs["model_save_path"] , losses_dict = losses_dict)
+        # save_model(epoch,model,optimizer,kwargs["model_save_path"] , losses_dict = losses_dict)
 
-        val_losses_dict = val_one_epoch_with_detection(*args, **kwargs)  #vla losses dict
+        val_losses_dict = val_one_epoch_given_obj_detection(*args, **kwargs)  #vla losses dict
         
         _write_val_values(val_losses_dict=val_losses_dict , writer=writer,epoch=epoch,losses_dict=losses_dict)
 
@@ -330,9 +333,70 @@ def val_one_epoch(*args , **kwargs)->Dict:
                 "val_pres_global":pres,
                 "val_bacc":bacc}
 
+@torch.no_grad
+def val_one_epoch_given_obj_detection(*args , **kwargs)->Dict:
+        """
+        validate one epoch
+        """
+        data_loader = kwargs["dataloader_val"]
+        dev=kwargs["dev"]
+        model = kwargs["model"].to(dev)
+        criterion = kwargs["criterion"]
+
+        loss_epoch = []
+        predictions_epoch = []
+        labels_epoch = []
+        max_epochs_val = 0
+        
+        for batch_idx , (frames , maneuver_type) in (pbar:=tqdm(enumerate(data_loader))): 
+            pbar.set_description_str("Val Batch: {}".format(batch_idx))
+            
+            frames = frames.to(dev) 
+            maneuver_type=maneuver_type.type(torch.LongTensor).to(dev)
+
+            prediction = model(frames)
+           
+            loss = criterion(prediction, maneuver_type)
+
+            #to comute eval metrics
+            predictions_epoch.append(prediction.detach().cpu().numpy())
+            labels_epoch.append(maneuver_type.detach().cpu().numpy())
+
+            loss_epoch.append(loss.item())
+       
+            pbar.set_postfix_str("Val Batch loss {:0.2f}".format(loss.item()))
+
+            max_epochs_val+=1
+
+
+
+        #convert to int categorical labels
+        predictions_epoch=list(map(lambda x: np.argmax(x) , predictions_epoch))
+        labels_epoch=list(map(lambda x: int(x) , labels_epoch))
+
+        
+        acc = accuracy_score(labels_epoch , predictions_epoch)
+        bacc = balanced_accuracy_score(labels_epoch , predictions_epoch)
+
+        pres_avg=precision_score(labels_epoch , predictions_epoch , average = "macro")
+        pres_class=precision_score(labels_epoch , predictions_epoch , average = "micro")
+        pres=precision_score(labels_epoch , predictions_epoch , average = "weighted")
+
+        rec =recall_score(labels_epoch , predictions_epoch , average="macro")
+        rec_class = recall_score(labels_epoch , predictions_epoch , average= "micro")
+
+        print(pres_class)
+        return {"loss_val_epoch":np.array(loss_epoch),
+                "val_acc":acc,
+                "val_pres":[pres_avg , pres_class] , 
+                "val_rec":[rec,rec_class] ,
+                "batch_count":max_epochs_val , 
+                "val_pres_global":pres,
+                "val_bacc":bacc}
+
 
 @torch.no_grad
-def val_one_epoch_with_detection(*args , **kwargs)->Dict:
+def val_one_epoch_with_single_detection(*args , **kwargs)->Dict:
         """
         validate one epoch
         """
@@ -350,102 +414,83 @@ def val_one_epoch_with_detection(*args , **kwargs)->Dict:
         for batch_idx , (frames , maneuver_type) in (pbar:=tqdm(enumerate(data_loader))): 
             pbar.set_description_str("Val Batch: {}".format(batch_idx))
             
-            frames = frames.to(dev) 
-            maneuver_type=maneuver_type.type(torch.LongTensor).to(dev)
+            frames:torch.tensor = frames.to(dev) 
+            maneuver_type:torch.tensor =maneuver_type.type(torch.LongTensor).to(dev)
 
-            assert frames.size(1)==3 and frames.size(2)==_PADDED_FRAMES,"Unexpected channels/stacking"
-            print("frame size {} ".format(frames[:,:,0,:,:].shape)) 
+            
+            frames = frames.squeeze(0) #remove batch dim
+            frames = torch.permute(frames , (1,0,2,3))  #1st segment dimension
 
-            print(detector.model)
-            frames_temp = []
-            for x in range(frames.size(2)):
-                frames_temp.append(frames[0, : ,  x ,: , :])
-                assert frames[0, : ,  x ,: , :].size(0)==3
-
-            frames_temp = np.array([np.array(x.detach().cpu()) for x in frames_temp])
-
-            for frame in frames_temp:
-                
-                assert frame is not None and frame!=[]
-
+            assert frames.dim()==4 and frames.size(1)==3  
+            
+            frames = frames.detach().cpu().numpy() #to numpy
+            
             #find bboxes by detectron2
             bboxes = []
             pred_classes = []
             conf=[]
-            for i,frame in enumerate(frames_temp):
+            for i,frame in enumerate(frames):
                 
-                frame = np.transpose(frame , (1,2,0))*255.0
+                frame = np.transpose(frame , (1,2,0)) *255  #hwc and uint8
                 
-                assert frame.shape[2]==3 and frame.shape[0]>0 and frame.shape[1]>0
-                # frame = cv2.cvtColor(frame , cv2.COLOR_RGB2BGR)
-                bboxes.append(box :=detector(frame)["instances"].pred_boxes)
-                
+                assert frame.shape[-1]==3
+
+
+                try:
+                    box1 = detector(frame)["instances"].pred_boxes
+                    
+
+                    if box1.tensor.numel()!=0:
+                        bboxes.append(box := box1[0])  ##keep only 1st detection
+                        pred_classes.append(detector(frame)["instances"].pred_classes[0])
+                        conf.append(detector(frame)["instances"].scores[0])
+                    else:
+                        bboxes.append(Boxes(torch.tensor([[0,frame.shape[0] , 0,frame.shape[1]]] , dtype=torch.float , device=dev)))
+                        pred_classes.append(None)
+                        conf.append(None)
+
+                except (IndexError,AssertionError) as e:
+                    print("Empty bbox for frame {i}".format(i=i  ))
+                    traceback.print_exc()
+                    raise 
+                    
                 
                 v = Visualizer(frame)
                 out = v.draw_instance_predictions(detector(frame)["instances"].to("cpu"))
 
-                cv2.imwrite(filename=os.path.join("/home/iccs/Desktop/isense/events/intention_prediction/debug/","test_image{}.png".format(i)) ,
-                            img = frame)
+                cv2.imwrite(filename=os.path.join("/home/iccs/Desktop/isense/events/intention_prediction/debug_2/","test_image{}.png".format(i)) ,
+                            img = frame[:,:,::-1])
                 cv2.imwrite(filename=os.path.join("/home/iccs/Desktop/isense/events/intention_prediction/debug/","test_img_with_detections_{}.png".format(i)) ,
-                            img=out.get_image()[:,:, ], )
+                            img=out.get_image()[:,:,::-1], )
                 
 
-                pred_classes.append(detector(frame)["instances"].pred_classes)
-                conf.append(detector(frame)["instances"].scores)
 
-                print("Bbox type:{}".format(type(bboxes[-1])))
+                print("Bbox {} found empty{}".format(bboxes[-1] , bboxes[-1].tensor.numel()))
 
             ##apply bboxes to frames of segment.
             try:
-                assert len(frames_temp)>0
-                frames_cropped = apply_bboxes(frames_temp , bboxes ,  pred_classes , conf)  #return MxN frames,where n= frames in segment,M=Detections
+                assert len(frames)>0
 
+                frames_cropped = apply_bboxes_single(frames , bboxes ,  pred_classes , conf)  #return MxN frames,where n= frames in segment,M=Detections
 
                 for j,i in enumerate(frames_cropped):
-                    out = v.draw_instance_predictions(detector(i.detach().cpu().numpy()[:,:,::-1])["instances"].to("cpu"))
+                    out = v.draw_instance_predictions(detector(i.transpose(1,2,0))["instances"].to("cpu"))
 
                     cv2.imwrite(filename=os.path.join("/home/iccs/Desktop/isense/events/intention_prediction/debug/","test_img_with_detections_{}_after_crop.png".format(i)) ,
-                            img=out.get_image()[:,:,::-1], )
+                            img=out.get_image().transpose(1,2,0), )
+            except Exception as err:
+                print(f"Unexpected {err=}, {type(err)=}")
+                raise
+      
+
+            #loop over frame, detection is singular
+            for frame in frames_cropped:
+                
+                    frame = torch.from_numpy(frame)
+                    frame = frame.to(dev)
+                    
+                    prediction = model(frame)
             
-            except MyCustomError as I:  #if no bboxes by detectron2
-                print("no bounding boxes detected ... resizing...")
-                frames_temp = np.transpose(frames_temp , (0,2,3,1)) #dhwc
-                frames_cropped = np.array([cv2.resize(x , dsize=(200,200) , interpolation=cv2.INTER_AREA) for x in frames_temp])
-            except AssertionError as a:
-                raise AssertionError("Wrong len frames")
-            finally:
-                print("continueing")
-
-
-            #loop over frame, detections-could be multiple
-            for detected_car in frames_cropped:
-                if isinstance(detected_car,list): ##means there are multiple detections in that frame
-                    for detection in detected_car:
-                        detected_car = torch.tensor(detection , dtype=torch.float,device=dev).permute((2,0,1))
-                        prediction = model(detected_car)
-                
-                        loss = criterion(prediction, maneuver_type)
-
-                        #to comute eval metrics
-                        predictions_epoch.append(prediction.detach().cpu().numpy())
-                        labels_epoch.append(maneuver_type.detach().cpu().numpy())
-
-                        loss_epoch.append(loss.item())
-                
-                        pbar.set_postfix_str("Val Batch loss {:0.2f}".format(loss.item()))
-
-                        
-                else:      #one detection
-                    
-                    
-
-                    detected_car = torch.stack([torch.tensor(x , dtype=torch.float,device=dev) for x in frames_cropped] , dim = 0)#form segment
-                    detected_car=detected_car.unsqueeze(0)#add batch
-                    detected_car=detected_car.permute((0,4,1,2,3)) # permute[j]->"take from dim i"
-
-                    prediction = model(detected_car)
-
-
                     loss = criterion(prediction, maneuver_type)
 
                     #to comute eval metrics
@@ -455,8 +500,6 @@ def val_one_epoch_with_detection(*args , **kwargs)->Dict:
                     loss_epoch.append(loss.item())
             
                     pbar.set_postfix_str("Val Batch loss {:0.2f}".format(loss.item()))
-
-                    max_epochs_val+=1
 
 
 
@@ -481,5 +524,4 @@ def val_one_epoch_with_detection(*args , **kwargs)->Dict:
                 "val_pres":[pres_avg , pres_class] , 
                 "val_rec":[rec,rec_class] ,
                 "batch_count":max_epochs_val , 
-                "val_pres_global":pres,
-                "val_bacc":bacc}
+                "val_pres_global":pres,}

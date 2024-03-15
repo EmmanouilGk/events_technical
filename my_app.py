@@ -32,31 +32,7 @@ def my_app(cfg: DictConfig):
     logging.info("Initializing")
 
     cfgv = OmegaConf.to_container(cfg)
-    # dataset_train = (read_frame_from_iter_train(path_to_video = "/home/iccs/Desktop/isense/events/intention_prediction/processed_data/video_camera1.mp4",
-    #                                            path_to_label = "/home/iccs/Desktop/isense/events/intention_prediction/processed_data/detection_camera1/lane_changes_preprocessed.txt",
-    #                                            prediction_horizon=5,
-    #                                            splits=(0.8,0.1,0.1)))
-
-    # dataset_val = read_frame_from_iter_val(path_to_video = "/home/iccs/Desktop/isense/events/intention_prediction/processed_data/video_camera1.mp4",
-    #                                            path_to_label = "/home/iccs/Desktop/isense/events/intention_prediction/processed_data/detection_camera1/lane_changes_preprocessed.txt",
-    #                                            prediction_horizon=5,
-    #                                            splits=(0.8,0.1,0.1))
-
-    dataset_train = prevention_dataset_train(root= "/home/iccs/Desktop/isense/events/intention_prediction/processed_data/segmented_frames",
-                                             label_root="/home/iccs/Desktop/isense/events/intention_prediction/processed_data/detection_camera1/lane_changes.txt",
-                                             gt_root="/home/iccs/Desktop/isense/events/intention_prediction/processed_data/detection_camera1/labels.txt",
-                                             detection_root = "/home/iccs/Desktop/isense/events/intention_prediction/processed_data/detection_camera1/detections.txt")
-                                             
-
-    dataset_val = prevention_dataset_val(root= "/home/iccs/Desktop/isense/events/intention_prediction/processed_data/segmented_frames",
-                                             label_root="/home/iccs/Desktop/isense/events/intention_prediction/processed_data/detection_camera1/lane_changes.txt")
-
-    # dataset_test = read_frame_from_iter_test(path_to_video = "/home/iccs/Desktop/isense/events/intention_prediction/processed_data/video_camera1.mp4",
-    #                                            path_to_label = "/home/iccs/Desktop/isense/events/intention_prediction/processed_data/detection_camera1/lane_changes_preprocessed.txt",
-    #                                            prediction_horizon=5,
-    #                                            splits=(0.8,0.1,0.1))
-    ##print dataset statistics
-    print(repr(dataset_train))
+    
     _root_dir = "/home/iccs/Desktop/isense/events/intention_prediction/processed_data/"
     
     # dataset_kwargs = _get_data_conf_(recording = , drive = )
