@@ -58,17 +58,23 @@ class logging_utils():
         self._current_epoch = value
 
 
-def _write_val_values(val_losses_dict , writer , epoch , losses_dict ):
+def _write_val_values(val_losses_dict:dict,
+                      losses_dict:dict
+                      , writer:SummaryWriter , 
+                      epoch:int , 
+                       )->None:
       """
       
-      write val dict metrics in tb
+      write train/val dict metrics in tb
+
       """
       for i, (desc , val) in enumerate(val_losses_dict.items()):
             for set in ["val","train"]:
+                if set=="val":batches=val_losses_dict["batch_count"]
+                elif set=="train":batches=losses_dict["batch_count"]
                 if desc=="loss_{}_epoch".format(set): 
                     for i in range(val.shape[0]):
-                        writer.add_scalar("{} Batch_Loss".format(set) , val[i] , (epoch-1)*losses_dict["batch_count"] + i)  #plot val loss
-                    continue
+                        writer.add_scalar("{} Batch_Loss".format(set) , val[i] , (epoch-1)*batches + i)  #plot val loss
                 if desc=="{}_pres".format(set):
                     for i in range(2):
                         writer.add_scalars("{} micro (0=Lk,1=Llc,2=Rlc)".format(set) , {"Class {}".format(i):val[1]},  i)   # add epoch wise acc,pres etc metrics 
@@ -134,7 +140,7 @@ def train(*args,**kwargs):
     
     model=kwargs["model"]
     
-
+ 
     ##update config params
     kwargs.update({"criterion":criterion})
     class_map=dict({0:"LK",
@@ -162,15 +168,26 @@ def train(*args,**kwargs):
     for epoch in  range(0 , max_epochs-current_epoch):
 
         #train and val
-        # losses_dict = train_one_epoch(*args , **kwargs)   #train losses dict
+        losses_dict = train_one_epoch(*args , **kwargs)   #train losses dict
 
-        # _write_val_values(val_losses_dict= losses_dict , writer=writer,epoch=epoch,losses_dict=losses_dict)
+        _write_val_values(val_losses_dict= losses_dict ,
+                          writer=writer,
+                          epoch=epoch,
+                          losses_dict=losses_dict)
         
-        # save_model(epoch,model,optimizer,kwargs["model_save_path"] , losses_dict = losses_dict)
+        save_model(epoch,
+                   model,
+                   optimizer,
+                   kwargs["model_save_path"] , 
+                   losses_dict = losses_dict)
 
         val_losses_dict = val_one_epoch_given_obj_detection(*args, **kwargs)  #vla losses dict
         
-        _write_val_values(val_losses_dict=val_losses_dict , writer=writer,epoch=epoch,losses_dict=losses_dict)
+        _write_val_values(val_losses_dict=val_losses_dict , 
+                          losses_dict= losses_dict,
+                          writer=writer,
+                          epoch=epoch,
+                          )
 
         #early stoppping - learing rate adapation
         if (val_losses_dict["loss_val_epoch"][-1] - losses_dict["loss_train_epoch"][-1])>0:
@@ -191,7 +208,10 @@ def train(*args,**kwargs):
         # writer.add_hparams({"lr" : scheduler.get_last_lr() } ,
         #                     {"loss_mean_val":np.mean(val_losses_dict["loss_val_epoch"])})
 
-        save_model(epoch,model,optimizer ,kwargs["model_save_path"])
+        save_model(epoch,
+                   model,
+                   optimizer ,
+                   kwargs["model_save_path"])
 
 def train_one_epoch(*args , **kwargs):
         """
@@ -211,7 +231,6 @@ def train_one_epoch(*args , **kwargs):
         predictions_epoch=[]
         labels_epoch=[]
         
-        s =  0
         for batch_idx , (frames , maneuver_type) in (pbar:=tqdm(enumerate(data_loader))): 
 
             pbar.set_description_str("Train Batch: {}".format(batch_idx))
@@ -221,8 +240,11 @@ def train_one_epoch(*args , **kwargs):
 
             prediction = model(frames)
 
-            loss = torch.nn.functional.cross_entropy(prediction,maneuver_type , weight= torch.tensor(data = ( 20,32), dtype=torch.float , device=dev))
-            print(prediction)
+            loss = torch.nn.functional.cross_entropy(prediction,
+                                                     maneuver_type , 
+                                                     weight= torch.tensor(data = ( 20,32), 
+                                                     dtype=torch.float , 
+                                                     device=dev))
             print(maneuver_type)
             print(loss)
             loss=loss/accumulated_gradients
@@ -238,8 +260,7 @@ def train_one_epoch(*args , **kwargs):
                 max_batches+=1
                 writer.add_scalar("Online batch loss-During update ", loss_epoch[-1] , batch_idx)
 
-            s+=1
-            if s ==1:break
+          
             pbar.set_postfix_str("Batch loss {:0.2f}".format(loss.item()))
 
             predictions_epoch.append(prediction.detach().cpu().numpy())
@@ -261,14 +282,12 @@ def train_one_epoch(*args , **kwargs):
         rec =recall_score(labels_epoch , predictions_epoch , average="macro")
         rec_class = recall_score(labels_epoch , predictions_epoch , average= "micro")
 
-
-        print(pres_class)
         return {"loss_train_epoch":np.array(loss_epoch),
                 "train_acc":acc,
                 "trian_pres":[pres_avg , pres_class] , 
                 "train_rec":[rec,rec_class] ,
                 "train_pres_global":pres,
-                "batch_count":batch_idx,
+                "batch_count":len(data_loader),
                 "train_bacc":bacc}
 
 @torch.no_grad
@@ -523,5 +542,5 @@ def val_one_epoch_with_single_detection(*args , **kwargs)->Dict:
                 "val_acc":acc,
                 "val_pres":[pres_avg , pres_class] , 
                 "val_rec":[rec,rec_class] ,
-                "batch_count":max_epochs_val , 
+                "batch_count":len(data_loader) , 
                 "val_pres_global":pres,}

@@ -55,7 +55,7 @@ def my_app(cfg: DictConfig):
                                              label_root=join(_root_dir , "new_data/recording_02/drive_01/processed_data/detection_camera1/lane_changes.txt"),
                                              gt_root=join(_root_dir , "new_data/recording_02/drive_01/processed_data/detection_camera1/labels.txt"),
                                              detection_root = join(_root_dir , "new_data/recording_02/drive_01/processed_data/detection_camera1/detections_tracked.txt")
-                                             ,desc = "Rec_02_01"),
+                                             ,desc = "Rec_02_01",split=0.8),
     
                                     # prevention_dataset_train(root= join(_root_dir , "new_data/recording_05/drive_03/segmented_frames"),
                                     #          label_root=join(_root_dir , "new_data/recording_05/drive_03/processed_data/detection_camera1/lane_changes.txt"),
@@ -82,7 +82,7 @@ def my_app(cfg: DictConfig):
                                              label_root=join(_root_dir , "new_data/recording_02/drive_01/processed_data/detection_camera1/lane_changes.txt"),
                                              gt_root=join(_root_dir , "new_data/recording_02/drive_01/processed_data/detection_camera1/labels.txt"),
                                              detection_root = join(_root_dir , "new_data/recording_02/drive_01/processed_data/detection_camera1/detections_tracked.txt")
-                                             ),
+                                             ,split=0.8),
                                     # prevention_dataset_val(root= join(_root_dir , "new_data/recording_05/drive_03/segmented_frames"),
                                     #          label_root=join(_root_dir , "new_data/recording_05/drive_03/processed_data/detection_camera1/lane_changes.txt"),
                                     #          gt_root=join(_root_dir , "new_data/recording_05/drive_03/processed_data/detection_camera1/labels.txt"),
@@ -139,7 +139,7 @@ def my_app(cfg: DictConfig):
 
     # print(torch.hub.help('facebookresearch/pytorchvideo', 'x3d_s'))
 
-    optimizer = torch.optim.SGD(params  = model.parameters() , lr=0.01 , weight_decay = 0.1)
+    optimizer = torch.optim.SGD(params  = model.parameters() , lr=0.01 , weight_decay = 0.0000001)
 
     epochs = cfg.conf.trainer.epochs
 
@@ -166,8 +166,8 @@ def my_app(cfg: DictConfig):
     detector = DefaultPredictor(cfgd)
 
     #==============================================================TRAIN-VAL-TEST================================================================
-    name="r53r41_r2_1"
-    writer = SummaryWriter(log_dir= "/home/iccs/Desktop/isense/events/intention_prediction/logs/run_{}-{}".format(now:=datetime.datetime.now(),name) )
+    name="slow_fast_more_padding_frames_train_val_splits"
+    writer = SummaryWriter(log_dir= "/home/iccs/Desktop/isense/events/intention_prediction/logs2/run_{}-{}".format(now:=datetime.datetime.now(),name) )
     print(cfgv)
     if cfgv["conf"]["mode"]=="train":
             train(cfg , writer=writer,
@@ -181,8 +181,8 @@ def my_app(cfg: DictConfig):
                 scheduler = scheduler,
                 epochs = epochs,
                 dev= dev,
-                model_save_path="/home/iccs/Desktop/isense/events/intention_prediction/models/weights/train_01_03_05_r53r41_r2_1_b.pt",
-                load_saved_model ="/home/iccs/Desktop/isense/events/intention_prediction/models/weights/train_01_03_05_r53r41_r2_1_b.pt",
+                model_save_path="/home/iccs/Desktop/isense/events/intention_prediction/models/weights/train_01_03_05_r53r41_r2_1_c.pt",
+                # load_saved_model ="/home/iccs/Desktop/isense/events/intention_prediction/models/weights/train_01_03_05_r53r41_r2_1_b.pt",
                 num_iterations_gr_accum = 5,
                 log_dict = {"lr":0.003},
                 detector = detector
@@ -196,7 +196,7 @@ def my_app(cfg: DictConfig):
         model = model , 
         epochs = epochs,
         dev= dev,
-        load_saved_model ="/home/iccs/Desktop/isense/events/intention_prediction/models/weights/train_01_03_05_r53r41_r2_1_b.pt")
+        load_saved_model ="/home/iccs/Desktop/isense/events/intention_prediction/models/weights/train_01_03_05_r53r41_r2_1_c.pt")
 
 @torch.no_grad()
 def construct_inference_video(

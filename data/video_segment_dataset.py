@@ -1,8 +1,9 @@
 import os
-from typing import Any, Iterable, List, Tuple
+from typing import Any, Callable, Iterable, List, Tuple
 from ..src.train_utils import bisect_right
 
 import cv2
+import torchvision
 import math
 from math import floor,ceil
 import sys
@@ -12,13 +13,15 @@ import torch
 from torch.utils.data import Dataset, ConcatDataset,IterableDataset
 from os.path import join
 from glob import glob
-from torchvision.transforms import Compose , Resize,  ToTensor , CenterCrop
+from torchvision.transforms import Compose, Normalize , Resize,  ToTensor , CenterCrop
 import fnmatch
 from ..conf.conf_py import _PADDED_FRAMES
 import pandas as pd
 from torchvision.transforms.v2 import ToImage
 import traceback
 from tqdm import tqdm
+
+
 
 def compute_weights(ds, 
                     save_path:str,
@@ -266,10 +269,12 @@ class prevention_dataset_train(Dataset):
         if "detection_root" in kwargs: self.detection_root=kwargs["detection_root"]
         if "gt_root" in kwargs: self.gt_root = kwargs["gt_root"]
         if "desc" in kwargs: self.desc = kwargs["desc"]
+        if "split" in kwargs: self.train_split = kwargs["split"]
 
-        self.transform = Compose([ ToImage() , CenterCrop((self.H,self.W)) ]) #transfor for each read frame
+        self.transform = Compose([ ToTensor() ,Resize((self.H , self.W)), Normalize(mean=[0.485, 0.456, 0.406],
+                                                                    std=[0.229, 0.224, 0.225]), CenterCrop((self.H,self.W)),]) #transfor for each read frame
 
-        self.transform_roi = Compose([ ToImage() , CenterCrop((self.roi_H,self.roi_W)) ])
+        self.transform_roi = Compose([ ToTensor() , Resize((self.roi_H,self.roi_W)) ])
 
         self.data=[]
         for video_frame_srcp in sorted(glob(join(root,".png"))):
@@ -281,11 +286,8 @@ class prevention_dataset_train(Dataset):
 
 
         #assign lane change clases
-
-        self.train_split = math.floor(len(self.labels)*0.8)
-
         
-        self.labels = self.labels[:self.train_split]#train split
+        self.labels = self.labels[:math.ceil(self.train_split* len(self.labels))]#train split
    
         for maneuver_info,id_car in zip(self.labels,self.ids_seq):
 
@@ -378,12 +380,15 @@ class prevention_dataset_train(Dataset):
         return "LK,LLC,RLC: {}/ {} / {}".format(self.lane_keep_counter,self.lane_change_right_counter,self.lane_change_left_counter)
 
     def crop_frames(self,frames,bboxes):
-
+        """
+        given 1 bbox , crop frames to that bbox. (bbox can be empty),if no bbox- return the frame and tr
+        """
         delta_y=20 #pixels left right tolerance
         delta_x = 30
         frame_cropped=[]
         
         for i,frame in enumerate(frames):
+            frame_temp = frame
             try:
             
                 if bboxes != [-1]*4:
@@ -394,7 +399,7 @@ class prevention_dataset_train(Dataset):
 
                 assert frame.shape[0]> abs(floor(bboxes[i][2]) - delta_y - ceil(bboxes[i][3]) +delta_y+20)
                 assert frame.shape[1]> abs(floor(bboxes[i][0]) -delta_x - ceil(bboxes[i][1])+delta_x)
-                
+                assert frame.shape[0]>0 and frame.shape[1]>0,frame.shape
             except IndexError as e:
                 print("Index error at idx {}, for total bboxes: {}".format(i , len(bboxes)))
                 continue
@@ -403,7 +408,8 @@ class prevention_dataset_train(Dataset):
             except AssertionError as e3:
                 # traceback.print_exc()
                 print("Assertion error for image of size {}, got croppping dims h,w:{} {} ".format(frame.shape , abs(floor(bboxes[i][2]) - delta_y - ceil(bboxes[i][3]) +delta_y+20) ,abs(floor(bboxes[i][0]) - delta_x - ceil(bboxes[i][1])+delta_x)))
-                frame = frame
+                traceback.print_exc()
+                frame = frame_temp
                 
 
             frame_cropped.append(frame)
@@ -490,11 +496,10 @@ class prevention_dataset_train(Dataset):
                     cv2.imwrite("/home/iccs/Desktop/isense/events/intention_prediction/debug/example_pic2_0{}.png".format(i) , x)
                 except Exception as e:
                     continue
-
+                    
             frame_tensor = torch.stack([self.transform_roi(x) for x in frame_stack] , dim=1)
-            frame_tensor=frame_tensor.type(torch.float)
+            frame_tensor=frame_tensor.type(torch.float) #0-1
             
-            img=self.transform(cv2.imread(segment_paths[0])).cpu().permute((1,2,0)).numpy()
            
             # cv2.imwrite("/home/iccs/Desktop/isense/events/intention_prediction/example_pic2.png" , img)
             # input("waiting")
@@ -639,8 +644,14 @@ class prevention_dataset_val(Dataset):
         self.W = 600
         self.roi_H = 200
         self.roi_W = 200
-        self.transform = Compose([ ToTensor() , Resize((self.H,self.W)) ]) #transfor for each read frame
+
+        self.transform = Compose([ ToTensor() , Resize((self.H,self.W)), Normalize(mean=[0.485, 0.456, 0.406],
+                                                                    std=[0.229, 0.224, 0.225]), CenterCrop((self.H,self.W))]) #transfor for each read frame
+        self.recording = os.path.abspath(os.path.join(root,  os.pardir , os.pardir))
+        self.drive = os.path.abspath(os.path.join(root,  os.pardir))
         if "gt_root" in kwargs: self.gt_root = kwargs["gt_root"]
+        if "dataset_desc" in kwargs: (self.recording,self.drive)=kwargs["dataset_desc"]
+        if "split" in kwargs: self.train_split = kwargs["split"]
 
         self.data=[]
         for video_frame_srcp in sorted(glob(join(root,".png"))):
@@ -655,9 +666,9 @@ class prevention_dataset_val(Dataset):
         self.val_split = math.floor(len(self.labels)*0.8)-1
 
         self.labels = self.labels[self.val_split:]#train split 57 first maneuver-but need to assign last frame of previeous maneuver to set the index for lane keep in between data
-        self.transform_roi = Compose([ ToImage() , CenterCrop((self.roi_H,self.roi_W)) ])
+        self.transform_roi = Compose([ ToTensor() , CenterCrop((self.roi_H,self.roi_W)) ]) #to default dtype and postproc3ess to common size
 
-
+        self.labels = self.labels[math.round(self.train_split* len(self.labels)+1):]#train split
         for maneuver_info in self.labels:
             lane_start = maneuver_info[3]
             if lane_start<0:continue
@@ -805,7 +816,7 @@ class prevention_dataset_val(Dataset):
                     
                     pbar2.set_description_str("now frames # {}".format(i))
                     
-                    pbar.set_description_str("Labelled detections are {}".format(detection_gt))
+                    pbar.set_description_str("Text file labels.txt annotation (read line ) is {}".format(detection_gt))
 
                     if detection_gt[1]<0:continue
 
@@ -818,32 +829,30 @@ class prevention_dataset_val(Dataset):
                         
 
                         #break in 1st detection of same car for that frame
-                        break
+                        break  #assure 1 bbox per frame, with same id as current id in frame
 
                     else:
                         #no bbox detection found for that frame and that car. Continue in next detection line
                         continue
                         
-                
-
-
+            
             no_crop=False
             counter_missing=0
-            for i,x in enumerate(bboxes_frames): 
-                if x == [] :
-                    counter_missing+=1
-                    bboxes_frames[i] = [-1]*4
 
-                else:
-                    counter_missing=0
-                
-                
+            # for i,x in enumerate(bboxes_frames): 
+            #     if x == [] :
+            #         counter_missing+=1
+            #         bboxes_frames[i] = [-1]*4
 
+            #     else:
+            #         counter_missing=0
+                
+            
             frame_stack = [cv2.imread(x) for x in segment_paths]
 
-            if bboxes_frames==[]: 
-                frames_cropped = frame_stack
-                no_crop=True
+            # if bboxes_frames==[]: 
+            #     frames_cropped = frame_stack
+            #     no_crop=True
 
             if counter_missing>5:
                     raise Exception("Detected more 5 frames missing, Interpolating ...")
@@ -852,20 +861,34 @@ class prevention_dataset_val(Dataset):
             if not no_crop:
                 frames_cropped = self.crop_frames(frame_stack , bboxes_frames)
 
+            frames_type = frames_cropped[-1].dtype
+            
+            frames_tensor_converted =torch.stack([torch.tensor(x , dtype=torch.get_default_dtype(), device="cuda:0").div(255) for x in frame_stack],dim=0)
+            frames_tensor_converted = torch.permute(frames_tensor_converted , ((3,0,1,2))) #c,d,h,w
+            frames_tensor_converted = torch.permute(frames_tensor_converted , ((1,0,2,3))) #c,d,h,w
+            
+            torchvision.utils.save_image(frames_tensor_converted , fp = "/home/iccs/Desktop/isense/events/intention_prediction/debug_3/frame_stack_after_crop.png")
+            
+            ##works fine
             frame_stack = frames_cropped
 
             assert frame_stack!=[]
         
-
+            #apply transformto to all cropped frames. 
             frame_tensor = torch.stack([self.transform_roi(x) for x in frame_stack] , dim=1) #preprocess cropped frames-resize to standard dims
 
-            frame_tensor=frame_tensor.type(torch.float)
+            frame_tensor=frame_tensor.type(torch.float) #0-1
                     
             
             label_tensor = torch.tensor(self.class_map[label] , dtype = torch.long)
 
             #return croped frame tensor with one car detection
 
+            for i, frames in enumerate(frame_tensor.permute((1,0,2,3))):
+                print(frames.size())
+                torchvision.utils.save_image(frames ,fp="/home/iccs/Desktop/isense/events/intention_prediction/debug_3/cropped_validation_img_seq_0{}.png".format(i))
+            torchvision.utils.save_image(frame_tensor.permute((1,0,2,3)) ,fp="/home/iccs/Desktop/isense/events/intention_prediction/debug_3/cropped_validation_img_sequences.png")
+            
             return frame_tensor , label_tensor
         
         
