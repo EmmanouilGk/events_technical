@@ -1,4 +1,5 @@
 import os
+import shutil
 from typing import Any, Callable, Iterable, List, Tuple
 from ..src.train_utils import bisect_right
 
@@ -390,16 +391,24 @@ class prevention_dataset_train(Dataset):
         for i,frame in enumerate(frames):
             frame_temp = frame
             try:
-            
+                #if small bbox => object detected far in depth, therefore need assign smaller delta
+                #if bbox large=>assingl larger delta
                 if bboxes != [-1]*4:
+                    a=(abs((floor(bboxes[i][2]) - ceil(bboxes[i][3]))/(frame.shape[1])-0.2))
+                    b=(abs((floor(bboxes[i][0])-ceil(bboxes[i][1]) )/(frame.shape[0])-0.2))
+                    print("Prinring relative bbox size {} {} ".format(a,b))
+                    if  a>0.2 and b>0.2:
+                        delta_x = 200
+                        delta_y = 200
+
                     frame = frame[floor(bboxes[i][2]) - delta_y :ceil(bboxes[i][3]) +delta_y+20 , floor(bboxes[i][0]) -delta_x:ceil(bboxes[i][1])+delta_x ] #crop
-         
+
                 elif bboxes == [-1]*4:
                     frame = frame
 
-                assert frame.shape[0]> abs(floor(bboxes[i][2]) - delta_y - ceil(bboxes[i][3]) +delta_y+20)
-                assert frame.shape[1]> abs(floor(bboxes[i][0]) -delta_x - ceil(bboxes[i][1])+delta_x)
-                assert frame.shape[0]>0 and frame.shape[1]>0,frame.shape
+                assert frame_temp.shape[1]> abs(floor(bboxes[i][2]) - delta_y - ceil(bboxes[i][3]) +delta_y+20)
+                assert frame_temp.shape[0]> abs(floor(bboxes[i][0]) -delta_x - ceil(bboxes[i][1])+delta_x)
+                assert frame_temp.shape[0]>0 and frame_temp.shape[1]>0,frame.shape
             except IndexError as e:
                 print("Index error at idx {}, for total bboxes: {}".format(i , len(bboxes)))
                 continue
@@ -447,6 +456,7 @@ class prevention_dataset_train(Dataset):
                     if detection_gt[0] == frame_counter and id_car == detection_gt[1]: #check id car is the detected in labels.
                         
                         frames_annotated.append(detection_gt[0])
+
                         bboxes_frames.append([_x:=(detection_gt[2]),_x_w:=(detection_gt[2]+detection_gt[4]),
                                               _y:=(detection_gt[3]),_y_h:=(detection_gt[3]+detection_gt[5]) ])
                         
@@ -490,6 +500,8 @@ class prevention_dataset_train(Dataset):
 
             assert frame_stack!=[]
             print(len(frame_stack))
+            if os.path.isdir("/home/iccs/Desktop/isense/events/intention_prediction/debug"): shutil.rmtree("/home/iccs/Desktop/isense/events/intention_prediction/debug")
+            os.mkdir("/home/iccs/Desktop/isense/events/intention_prediction/debug")
             for i,x in enumerate(frame_stack):
                 try:
 
@@ -665,16 +677,15 @@ class prevention_dataset_val(Dataset):
         #assign lane change clases
         self.val_split = math.floor(len(self.labels)*0.8)-1
 
-        self.labels = self.labels[self.val_split:]#train split 57 first maneuver-but need to assign last frame of previeous maneuver to set the index for lane keep in between data
         self.transform_roi = Compose([ ToTensor() , CenterCrop((self.roi_H,self.roi_W)) ]) #to default dtype and postproc3ess to common size
 
-        self.labels = self.labels[math.round(self.train_split* len(self.labels)+1):]#train split
+        self.labels = self.labels[math.floor(self.train_split* len(self.labels)+1):]#train split
         for maneuver_info in self.labels:
             lane_start = maneuver_info[3]
-            if lane_start<0:continue
+            
             lane_end = maneuver_info[4]
             id_car = abs(maneuver_info[0])
-
+            if lane_start<0:continue
             maneuver_event = maneuver_info[2]
             assert maneuver_event==3 or maneuver_event==4, "Expected maneuver label in 3,4, got {}".format(maneuver_event)
             # if lane_end-lane_start>72:continue  #skip maneuvers taking too long
@@ -863,7 +874,7 @@ class prevention_dataset_val(Dataset):
 
             frames_type = frames_cropped[-1].dtype
             
-            frames_tensor_converted =torch.stack([torch.tensor(x , dtype=torch.get_default_dtype(), device="cuda:0").div(255) for x in frame_stack],dim=0)
+            frames_tensor_converted = torch.stack([torch.tensor(x , dtype=torch.get_default_dtype(), device="cuda:0").div(255) for x in frame_stack],dim=0)
             frames_tensor_converted = torch.permute(frames_tensor_converted , ((3,0,1,2))) #c,d,h,w
             frames_tensor_converted = torch.permute(frames_tensor_converted , ((1,0,2,3))) #c,d,h,w
             
@@ -909,13 +920,20 @@ class prevention_dataset_test(Dataset):
 
     def __init__(self,
                  root,
-                 label_root,
+                 label_root,**kwargs
                  ) -> None:
         super().__init__()
         self.H = 245
         self.W = 245
-        self.transform = Compose([ ToTensor() , Resize((self.H,self.W)) ]) #transfor for each read frame
-
+        self.roi_H = 200
+        self.roi_W = 200
+        if "gt_root" in kwargs: self.gt_root = kwargs["gt_root"]
+        self.transform = Compose([ ToTensor() , Resize((self.H,self.W)), Normalize(mean=[0.485, 0.456, 0.406],
+                                                                    std=[0.229, 0.224, 0.225]), CenterCrop((self.H,self.W))]) #transfor for each read frame
+        self.recording = os.path.abspath(os.path.join(root,  os.pardir , os.pardir))
+        self.drive = os.path.abspath(os.path.join(root,  os.pardir))
+        if "dataset_desc" in kwargs: (self.recording,self.drive)=kwargs["dataset_desc"]
+        if "split" in kwargs: self.train_split = kwargs["split"]
 
         self.data=[]
         for video_frame_srcp in sorted(glob(join(root,".png"))):
@@ -926,12 +944,22 @@ class prevention_dataset_test(Dataset):
 
         #assign lane change clases
 
-        self.labels = self.labels[:]#train split 57 first maneuver-but need to assign last frame of previeous maneuver to set the index for lane keep in between data
+        self.labels = _read_lane_change_labels(label_root)[0]
+        self.gt = _read_labels_gt(labels_root = self.gt_root)
 
+        self.class_map = { "LLC":0, "RLC":1}
+
+        #assign lane change clases
+        self.val_split = math.floor(len(self.labels)*0.8)-1
+
+        self.transform_roi = Compose([ ToTensor() , CenterCrop((self.roi_H,self.roi_W)) ]) #to default dtype and postproc3ess to common size
+
+        self.labels=self.labels[math.floor(self.train_split* len(self.labels)+1):]#test split
 
         for maneuver_info in self.labels:
             lane_start = maneuver_info[3]
             lane_end = maneuver_info[4]
+            id_car = abs(maneuver_info[0])
             if lane_start<0:continue
             maneuver_event = maneuver_info[2]
             if maneuver_event!=3 and maneuver_event!=4:continue
@@ -944,7 +972,7 @@ class prevention_dataset_test(Dataset):
 
             assert len(frames_paths)>0,"The expected frame range is {} {}".format(lane_start-5 , lane_end)
             
-            self.data.append([frames_paths , maneuver_event])
+            self.data.append([frames_paths , maneuver_event , id_car])
 
 
         #assign lane keep clases
@@ -984,26 +1012,161 @@ class prevention_dataset_test(Dataset):
                         
         #     for maneuver_info in self.labels:
         #         if frame_path in range(maneuver_info[5] - maneuver_info[4]):
+                
+    def crop_frames(self,frames,bboxes):
 
+        delta_y=20 #pixels left right tolerance
+        delta_x = 30
+        frame_cropped=[]
+        
+        for i,frame in enumerate(frames):
+            try:
+            
+                if bboxes != [-1]*4:
+                    frame = frame[floor(bboxes[i][2]) - delta_y :ceil(bboxes[i][3]) +delta_y+20 , floor(bboxes[i][0]) -delta_x:ceil(bboxes[i][1])+delta_x ] #crop
+         
+                elif bboxes == [-1]*4:
+                    frame = frame
+
+                assert frame.shape[0]> abs(floor(bboxes[i][2]) - delta_y - ceil(bboxes[i][3]) +delta_y+20)
+                assert frame.shape[1]> abs(floor(bboxes[i][0]) -delta_x - ceil(bboxes[i][1])+delta_x)
+                
+            except IndexError as e:
+                print("Index error at idx {}, for total bboxes: {}".format(i , len(bboxes)))
+                continue
+            except StopIteration as e2:
+                break
+            except AssertionError as e3:
+                # traceback.print_exc()
+                print("Assertion error for image of size {}, got croppping dims h,w:{} {} ".format(frame.shape , abs(floor(bboxes[i][2]) - delta_y - ceil(bboxes[i][3]) +delta_y+20) ,abs(floor(bboxes[i][0]) - delta_x - ceil(bboxes[i][1])+delta_x)))
+                frame = frame
+                
+
+            frame_cropped.append(frame)
+
+        return frame_cropped
+    
+    def _read_labels_gt(labels_root):
+        """
+        read car bbox detections
+        """
+        detections=[]
+        df = pd.read_csv(labels_root, sep=" ")
+
+        with open(labels_root , "r") as f:
+            while True:
+                line = f.readline()
+                line = line[:-1]
+                line_p=[]
+                for x in line.rsplit(" "):
+                    if x[1:-4]=="":continue
+
+                    x= int(float(x[1:-4])*10**int(x[-1]))
+
+                    line_p.append(x)
+                line=line_p
+                assert type(line)==list
+                if not line:
+                    break
+                else:
+                    detections.append(line)    #frame,id,x,y,width,height
+        
+        return detections
 
     def __getitem__(self, index) -> Any:
-            segment_paths , label = self.data[index]
+            segment_paths , label , id_car= self.data[index]
 
-            img = cv2.imread(segment_paths[0])
+            frames = [int(os.path.basename(x)[:-4]) for x in segment_paths]
+
+            bboxes_frames=[]
+            frames_annotated=[]
+
+            #iter over frames in seg-use detection from 1st frame to filter all next detections.
+            #crop frames according to that detection-use in prediction and validation
+            for i,frame_counter in (pbar2:=tqdm(enumerate(frames) , position=0,desc='Outter')):
+
+                #iter over detections labels
+                detection_id = 0
+
+                for detection_gt in (pbar:=tqdm(self.gt , position=1,desc='Inner')):
+                    
+                    pbar2.set_description_str("now frames # {}".format(i))
+                    
+                    pbar.set_description_str("Text file labels.txt annotation (read line ) is {}".format(detection_gt))
+
+                    if detection_gt[1]<0:continue
+
+                    if (detection_gt[0] == frame_counter and id_car == detection_gt[1]): #check id car is the detected in labels.
+                        
+                        frames_annotated.append(detection_gt[0])  #append frame
+
+                        bboxes_frames.append([_x:=(detection_gt[2]),_x_w:=(detection_gt[2]+detection_gt[4]),  ##bbox for that car
+                                              _y:=(detection_gt[3]),_y_h:=(detection_gt[3]+detection_gt[5]) ])
+                        
+
+                        #break in 1st detection of same car for that frame
+                        break  #assure 1 bbox per frame, with same id as current id in frame
+
+                    else:
+                        #no bbox detection found for that frame and that car. Continue in next detection line
+                        continue
+                        
+            
+            no_crop=False
+            counter_missing=0
+
+            # for i,x in enumerate(bboxes_frames): 
+            #     if x == [] :
+            #         counter_missing+=1
+            #         bboxes_frames[i] = [-1]*4
+
+            #     else:
+            #         counter_missing=0
+                
             
             frame_stack = [cv2.imread(x) for x in segment_paths]
-            frame_tensor = torch.stack([self.transform(x) for x in frame_stack] , dim=1)
 
-            frame = cv2.imwrite(" /home/iccs/Desktop/isense/events/intention_prediction/example_pic.png",frame_tensor[:,:,:,].detach().cpu().numpy())
-            # cv2.imwrite(" /home/iccs/Desktop/isense/events/intention_prediction/example_pic.png",frame )
+            # if bboxes_frames==[]: 
+            #     frames_cropped = frame_stack
+            #     no_crop=True
 
-            # assert frame_tensor.size(1) == _PADDED_FRAMES and frame_tensor.size(0) == 3
+            if counter_missing>5:
+                    raise Exception("Detected more 5 frames missing, Interpolating ...")
+                    self._interpolate_frames(frame_stack , bboxes_frames)
+                
+            if not no_crop:
+                frames_cropped = self.crop_frames(frame_stack , bboxes_frames)
 
-            label_tensor = torch.tensor(self.class_map[label] , dtype = torch.float)
+            frames_type = frames_cropped[-1].dtype
+            
+            frames_tensor_converted = torch.stack([torch.tensor(x , dtype=torch.get_default_dtype(), device="cuda:0").div(255) for x in frame_stack],dim=0)
+            frames_tensor_converted = torch.permute(frames_tensor_converted , ((3,0,1,2))) #c,d,h,w
+            frames_tensor_converted = torch.permute(frames_tensor_converted , ((1,0,2,3))) #c,d,h,w
+            
+            torchvision.utils.save_image(frames_tensor_converted , fp = "/home/iccs/Desktop/isense/events/intention_prediction/debug_3/frame_stack_after_croptest.png")
+            
+            ##works fine
+            frame_stack = frames_cropped
 
-            print("val tensor dims are {}".format(frame_tensor))
+            assert frame_stack!=[]
+        
+            #apply transformto to all cropped frames. 
+            frame_tensor = torch.stack([self.transform_roi(x) for x in frame_stack] , dim=1) #preprocess cropped frames-resize to standard dims
 
+            frame_tensor=frame_tensor.type(torch.float) #0-1
+                    
+            
+            label_tensor = torch.tensor(self.class_map[label] , dtype = torch.long)
+
+            #return croped frame tensor with one car detection
+
+            for i, frames in enumerate(frame_tensor.permute((1,0,2,3))):
+                print(frames.size())
+                torchvision.utils.save_image(frames ,fp="/home/iccs/Desktop/isense/events/intention_prediction/debug_3/cropped_test_img_seq_0{}.png".format(i))
+            torchvision.utils.save_image(frame_tensor.permute((1,0,2,3)) ,fp="/home/iccs/Desktop/isense/events/intention_prediction/debug_3/cropped_test_img_sequences.png")
+            
             return frame_tensor , label_tensor
+        
         
         
     def __len__(self):

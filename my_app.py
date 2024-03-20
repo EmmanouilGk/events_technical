@@ -4,7 +4,8 @@ from hydra.utils import instantiate
 import logging
 from omegaconf import DictConfig
 import datetime
-
+from pytorchvideo.models.slowfast import create_slowfast
+from pytorchvideo.models.head import create_res_basic_head
 from detectron2.engine import DefaultPredictor
 from detectron2.config import get_cfg
 
@@ -93,18 +94,19 @@ def my_app(cfg: DictConfig):
     dataset_test = ConcatDataset([
                                     # prevention_dataset_test(root= "/home/iccs/Desktop/isense/events/intention_prediction/processed_data/segmented_test_frames",
                                     #        label_root="/home/iccs/Desktop/isense/events/intention_prediction/processed_data/new_data/recording_04/drive_03/processed_data/detection_camera1/lane_changes.txt"),
-                                   prevention_dataset_test(root= "/home/iccs/Desktop/isense/events/intention_prediction/processed_data/new_data/recording_03/drive_02/segmented_frames/",
-                                           label_root="/home/iccs/Desktop/isense/events/intention_prediction/processed_data/new_data/recording_03/drive_02/processed_data/detection_camera1/lane_changes.txt")        ])
+                                   prevention_dataset_test(root= "/home/iccs/Desktop/isense/events/intention_prediction/processed_data/new_data/recording_02/drive_01/segmented_frames/",
+                                            label_root="/home/iccs/Desktop/isense/events/intention_prediction/processed_data/new_data/recording_02/drive_01/processed_data/detection_camera1/lane_changes.txt",
+                                            gt_root=join(_root_dir , "new_data/recording_02/drive_01/processed_data/detection_camera1/labels.txt"),split=0.8)
+                                ])
 
     # ds_union = union_prevention()
     
 
     # dataloader = instantiate(config = cfg.datasets.prevention_loader)  #recheck
     if cfg.conf.use_weights:
-        save_path="/home/iccs/Desktop/isense/events/intention_prediction/data/weights_torch/weights_union_prevention10.pt"
+        save_path="/home/iccs/Desktop/isense/events/intention_prediction/data/weights_torch/weights_union_prevention_binary.pt"
         if os.path.isfile(save_path):
             weights=torch.load(save_path)
-            input(weights)
             # assert len(weights)==len(dataset_train),"print {} {}".format(len(weights) , len(dataset_train))
         else: weights , class_w, weights_dict = compute_weights_binary_cls(ds = dataset_train,custom_scaling=10 , save_path =save_path )
         print("Final dataset size is {}".format(len(dataset_train)))
@@ -113,10 +115,7 @@ def my_app(cfg: DictConfig):
                                   sampler =torch.utils.data.WeightedRandomSampler(weights=weights, num_samples = len(dataset_train),replacement=True),
                                   pin_memory=True)
         
-        dataloader_train = DataLoader(dataset_train , batch_size=1 , 
-                                  collate_fn= collate_fn_padding , shuffle=False , 
-                                  sampler =torch.utils.data.SequentialSampler(),
-                                  pin_memory=True)
+        
 
     elif not cfg.conf.use_weights:
         dataloader_train = DataLoader(dataset_train , batch_size=1, 
@@ -128,14 +127,36 @@ def my_app(cfg: DictConfig):
 
 
     dataloader_test = DataLoader(dataset_test , batch_size=1 , collate_fn= collate_fn_padding)
-
+    
+    # model = create_slowfast(model_num_class =2 )
     # model = instantiate(cfg.conf.models)   #recheck 
-    model = torch.hub.load('facebookresearch/pytorchvideo', 'slow_r50', pretrained=False , model_num_class=2)
-    state_dict = torch.hub.load_state_dict_from_url(    "https://dl.fbaipublicfiles.com/pytorchvideo/model_zoo/kinetics/SLOWFAST_4x16_R50.pyth"
-                                                    )
-    # input(state_dict)
-    # # state_dict_new = {k,v  for k,v in state_dict.items()}
-    # model.load_state_dict(state_dict)
+    model = torch.hub.load('facebookresearch/pytorchvideo', 'slow_r50', pretrained=True )
+    print(model)
+    print(model.blocks)
+
+    ##define new model
+    for i,module in enumerate(model.blocks):
+        print("a")
+        if i==5:
+            new_module_head = torch.nn.Sequential(*list(module.children())[:-2],
+                                         torch.nn.Linear(in_features=2048,out_features=2,bias=True),
+                                         torch.nn.AdaptiveAvgPool3d(output_size=1))
+            
+    # model = torch.nn.Sequential(*list(model.blocks)[:-1] , new_module_head)
+    
+    model = torch.nn.Sequential(*list(model.blocks)[:-1]  , create_res_basic_head(in_features = 2048, out_features = 2))
+
+    print(model)
+    # state_dict = torch.hub.load_state_dict_from_url(    "https://dl.fbaipublicfiles.com/pytorchvideo/model_zoo/kinetics/SLOWFAST_4x16_R50.pyth"
+    #                                                 )
+
+    # state_dict = torch.load("/home/iccs/Desktop/isense/events/intention_prediction/models/weights/SLOWFAST_8x8_R50.pkl",map_location ='cpu')
+    # # input(state_dict)
+    # state_dict_new = state_dict["model_state"]
+    # state_dict_new.update({k:v if k in model.state_dict().keys() else None for k,v in state_dict.items()})
+    # model.load_state_dict(state_dict_new)
+
+
 
     # print(torch.hub.help('facebookresearch/pytorchvideo', 'x3d_s'))
 

@@ -241,7 +241,7 @@ def train_one_epoch(*args , **kwargs):
             prediction = model(frames)
 
             loss = torch.nn.functional.cross_entropy(prediction,
-                                                     maneuver_type , 
+                                                     maneuver_type ,
                                                      weight= torch.tensor(data = ( 20,32), 
                                                      dtype=torch.float , 
                                                      device=dev))
