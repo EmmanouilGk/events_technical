@@ -8,7 +8,7 @@ from pytorchvideo.models.slowfast import create_slowfast
 from pytorchvideo.models.head import create_res_basic_head
 from detectron2.engine import DefaultPredictor
 from detectron2.config import get_cfg
-
+from pytorchvideo.models.slowfast import create_slowfast
 import os
 from os.path import join
 from torch.utils.data import DataLoader
@@ -134,6 +134,12 @@ def my_app(cfg: DictConfig):
     # model = torch.hub.load('facebookresearch/pytorchvideo', 'slow_r50', pretrained=True )
     # print(model)
     # print(model.blocks)
+    # model = create_slowfast(model_num_class =2 )
+    # model = instantiate(cfg.conf.models)   #recheck 
+    model = create_slowfast()
+
+   
+    print(model)
 
     # ##define new model
     # for i,module in enumerate(model.blocks):
@@ -145,11 +151,12 @@ def my_app(cfg: DictConfig):
             
     # # model = torch.nn.Sequential(*list(model.blocks)[:-1] , new_module_head)
     
-    # model = torch.nn.Sequential(*list(model.blocks)[:-1]  , create_res_basic_head(in_features = 2048, out_features = 2))
 
-    print(model)
+   
     input("waiting")
-    
+
+    # print(torch.hub.help('facebookresearch/pytorchvideo', 'x3d_s'))
+
     optimizer = torch.optim.SGD(params  = model.parameters() , lr=0.01 , weight_decay = 0.0000001)
 
     epochs = cfg.conf.trainer.epochs
@@ -177,7 +184,7 @@ def my_app(cfg: DictConfig):
     detector = DefaultPredictor(cfgd)
 
     #==============================================================TRAIN-VAL-TEST================================================================
-    name="slowfast_r50_pytorchvideo"
+    name="slowfast_torchvideo"
     writer = SummaryWriter(log_dir= "/home/iccs/Desktop/isense/events/intention_prediction/logs2/run_{}-{}".format(now:=datetime.datetime.now(),name) )
     print(cfgv)
     if cfgv["conf"]["mode"]=="train":
@@ -192,7 +199,7 @@ def my_app(cfg: DictConfig):
                 scheduler = scheduler,
                 epochs = epochs,
                 dev= dev,
-                model_save_path="/home/iccs/Desktop/isense/events/intention_prediction/models/weights/slowfast_r50_pytorchvideo.pt",
+                model_save_path="/home/iccs/Desktop/isense/events/intention_prediction/models/weights/train_pytorchvideo_slowfast.pt",
                 # load_saved_model ="/home/iccs/Desktop/isense/events/intention_prediction/models/weights/train_01_03_05_r53r41_r2_1_b.pt",
                 num_iterations_gr_accum = 5,
                 log_dict = {"lr":0.003},
@@ -207,7 +214,7 @@ def my_app(cfg: DictConfig):
         model = model , 
         epochs = epochs,
         dev= dev,
-        load_saved_model ="/home/iccs/Desktop/isense/events/intention_prediction/models/weights/slowfast_r50_pytorchvideo.pt")
+        load_saved_model ="/home/iccs/Desktop/isense/events/intention_prediction/models/weights/train_pytorchvideo_slowfast.pt")
 
 @torch.no_grad()
 def construct_inference_video(

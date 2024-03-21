@@ -58,4 +58,25 @@ def collate_fn_padding(batch:List[Tuple[FloatTensor,FloatTensor]])->Tuple[torch.
 
     assert frames_batch.size(1)==3 and frames_batch.size(2)==padded_frames
 
+    # #pytorchvideo create_slowfast
+    _alpha=8
+    _tau=16
+
+    _stride_slow=_tau
+    _stride_fast = _tau/_alpha
+
+    ##path pathway collects 1 every stride_path frames.(i.e. temporal resolution)
+
+    # slow_path=torch.index_select(frames_batch , 2 , torch.linspace(0,frames_batch.size(2) - 1 , frames_batch.shape[2]//alpha).long()) #index frame tensor along 1-torch.linspace
+    slow_path =torch.index_select(frames_batch , 2 
+                                  , index = torch.linspace(torch.tensor(0),torch.tensor(frames_batch.size(2)-1),int(_PADDED_FRAMES//_stride_slow)).long())
+    assert slow_path.size(2) == int(_PADDED_FRAMES//_stride_slow)
+    
+    fast_path = torch.index_select(frames_batch, dim=2 , 
+                                   index= torch.linspace(torch.tensor(0),torch.tensor(frames_batch.size(2)-1) , int(_PADDED_FRAMES//_stride_fast)).long())
+    
+    
+    frames_batch = [slow_path , fast_path ]
+
+
     return frames_batch , label_batch

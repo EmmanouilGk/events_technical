@@ -235,7 +235,11 @@ def train_one_epoch(*args , **kwargs):
 
             pbar.set_description_str("Train Batch: {}".format(batch_idx))
             
-            frames = frames.to(dev)
+            print(len(frames))
+            print(frames[0].size())
+            frames[0]=frames[0].to(dev)
+            frames[1] = frames[1].to(dev)
+            
             maneuver_type=maneuver_type.to(dev)
 
             prediction = model(frames)
@@ -412,7 +416,6 @@ def val_one_epoch_given_obj_detection(*args , **kwargs)->Dict:
                 "batch_count":max_epochs_val , 
                 "val_pres_global":pres,
                 "val_bacc":bacc}
-
 
 @torch.no_grad
 def val_one_epoch_with_single_detection(*args , **kwargs)->Dict:
