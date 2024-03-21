@@ -169,7 +169,7 @@ def train(*args,**kwargs):
 
         #train and val
         losses_dict = train_one_epoch(*args , **kwargs)   #train losses dict
-
+    
         _write_val_values(val_losses_dict= losses_dict ,
                           writer=writer,
                           epoch=epoch,

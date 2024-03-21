@@ -4,6 +4,7 @@ from typing import Any, Callable, Iterable, List, Tuple
 from ..src.train_utils import bisect_right
 
 import cv2
+import numpy as np
 import torchvision
 import math
 from math import floor,ceil
@@ -397,14 +398,18 @@ class prevention_dataset_train(Dataset):
                     a=(abs((floor(bboxes[i][2]) - ceil(bboxes[i][3]))/(frame.shape[1])-0.2))
                     b=(abs((floor(bboxes[i][0])-ceil(bboxes[i][1]) )/(frame.shape[0])-0.2))
                     print("Prinring relative bbox size {} {} ".format(a,b))
-                    if  a>0.2 and b>0.2:
+                    if  a>0.2 and b>0.2:  #if car is too close => bbox is larger 0.2 empircially
                         delta_x = 200
                         delta_y = 200
 
-                    frame = frame[floor(bboxes[i][2]) - delta_y :ceil(bboxes[i][3]) +delta_y+20 , floor(bboxes[i][0]) -delta_x:ceil(bboxes[i][1])+delta_x ] #crop
+                    frame = frame[np.max([floor(bboxes[i][2]) - delta_y,0 ]) :  np.clip(ceil(bboxes[i][3]) +delta_y+20 , 0 ,frame.shape[0] ) , np.max([floor(bboxes[i][0]) -delta_x,0]) : np.clip(ceil(bboxes[i][1])+delta_x , 0 , frame.shape[1]) ] #crop #note shpae is hw here for some reasonq
+
 
                 elif bboxes == [-1]*4:
                     frame = frame
+
+
+                assert frame.shape[0]>0 and frame.shape[1]>0,"{} {} {}".format(bboxes[i],frame.shape,frame_temp.shape)
 
                 assert frame_temp.shape[1]> abs(floor(bboxes[i][2]) - delta_y - ceil(bboxes[i][3]) +delta_y+20)
                 assert frame_temp.shape[0]> abs(floor(bboxes[i][0]) -delta_x - ceil(bboxes[i][1])+delta_x)
