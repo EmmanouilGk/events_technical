@@ -526,6 +526,12 @@ class prevention_dataset_train(Dataset):
             label_tensor = torch.tensor(self.class_map[label] , dtype = torch.long)
 
 
+            #pytorchvideo create_slowfast
+            alpha=4
+            slow_path=torch.index_select(frame_tensor , 1 , torch.linspace(0,frame_tensor.size(1) - 1 , frames.shape[1]//alpha).long()) #index frame tensor along 1-torch.linspace
+            frame_tensor = list(slow_path , frame_tensor , )
+
+
             return frame_tensor , label_tensor
         
     def _interpolate_frames(frame_stack:List[torch.tensor],
