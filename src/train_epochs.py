@@ -237,12 +237,16 @@ def train_one_epoch(*args , **kwargs):
             
             print(len(frames))
             print(frames[0].size())
-            frames[0]=frames[0].to(dev)
-            frames[1] = frames[1].to(dev)
+            if isinstance(frames,list):
+                frames[0]=frames[0].to(dev)
+                frames[1] = frames[1].to(dev)
+            else:
+                frames = frames.to(dev)
             
             maneuver_type=maneuver_type.to(dev)
-
+            
             prediction = model(frames)
+            
 
             loss = torch.nn.functional.cross_entropy(prediction,
                                                      maneuver_type ,
@@ -251,7 +255,8 @@ def train_one_epoch(*args , **kwargs):
                                                      device=dev))
             print(maneuver_type)
             print(loss)
-            loss=loss/accumulated_gradients
+
+            loss= loss / accumulated_gradients
             # loss = criterion(prediction , maneuver_type) / accumulated_gradients
 
             loss.backward()
@@ -374,7 +379,7 @@ def val_one_epoch_given_obj_detection(*args , **kwargs)->Dict:
         for batch_idx , (frames , maneuver_type) in (pbar:=tqdm(enumerate(data_loader))): 
             pbar.set_description_str("Val Batch: {}".format(batch_idx))
             
-            frames = frames.to(dev) 
+            frames[0],frames[1]=frames[0].to(dev),frames[1].to(dev) 
             maneuver_type=maneuver_type.type(torch.LongTensor).to(dev)
 
             prediction = model(frames)

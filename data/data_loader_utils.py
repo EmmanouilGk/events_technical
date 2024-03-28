@@ -3,6 +3,10 @@ import torch
 from ..conf.conf_py import _PADDED_FRAMES
 from typing import List ,Tuple
 from torch import FloatTensor
+import torch
+import json
+from ..conf.conf_py import _MODEL_
+
 
 def gaussian_noise(img, mean=0, sigma=0.03):
     """
@@ -58,25 +62,79 @@ def collate_fn_padding(batch:List[Tuple[FloatTensor,FloatTensor]])->Tuple[torch.
 
     assert frames_batch.size(1)==3 and frames_batch.size(2)==padded_frames
 
-    # #pytorchvideo create_slowfast
-    _alpha=8
-    _tau=16
 
-    _stride_slow=_tau
-    _stride_fast = _tau/_alpha
+    if _MODEL_=="slowfast":
+        # #pytorchvideo create_slowfast
+        alpha = 8
+        _alpha=8
+        _tau=16
 
-    ##path pathway collects 1 every stride_path frames.(i.e. temporal resolution)
+        _stride_slow=_tau
+        _stride_slow=_alpha
+        _stride_fast = _tau/_alpha
 
-    # slow_path=torch.index_select(frames_batch , 2 , torch.linspace(0,frames_batch.size(2) - 1 , frames_batch.shape[2]//alpha).long()) #index frame tensor along 1-torch.linspace
-    slow_path =torch.index_select(frames_batch , 2 
-                                  , index = torch.linspace(torch.tensor(0),torch.tensor(frames_batch.size(2)-1),int(_PADDED_FRAMES//_stride_slow)).long())
-    assert slow_path.size(2) == int(_PADDED_FRAMES//_stride_slow)
-    
-    fast_path = torch.index_select(frames_batch, dim=2 , 
-                                   index= torch.linspace(torch.tensor(0),torch.tensor(frames_batch.size(2)-1) , int(_PADDED_FRAMES//_stride_fast)).long())
-    
-    
-    frames_batch = [slow_path , fast_path ]
 
+        ##path pathway collects 1 every stride_path frames.(i.e. temporal resolution)
+
+        # slow_path=torch.index_select(frames_batch , 2 , torch.linspace(0,frames_batch.size(2) - 1 , frames_batch.shape[2]//alpha).long()) #index frame tensor along 1-torch.linspace
+        slow_path =torch.index_select(frames_batch , 2 
+                                        , index = torch.linspace(torch.tensor(0),torch.tensor(frames_batch.size(2)-1),int(_PADDED_FRAMES//_stride_slow)).long())
+        assert slow_path.size(2) == int(_PADDED_FRAMES//_stride_slow)
+        
+        fast_path = torch.index_select(frames_batch, dim=2 , 
+                                    index= torch.linspace(torch.tensor(0),torch.tensor(frames_batch.size(2)-1) , int(_PADDED_FRAMES//_stride_fast)).long())
+        
+        frames_batch = [slow_path , fast_path ]
+
+    if _MODEL_== "CNNLSTM":
+        #resnet101xt requires time dim first, then spatial channels
+        frames_batch = torch.permute(frames_batch , (0,2,1,3,4))
 
     return frames_batch , label_batch
+
+
+class PackPathway(torch.nn.Module):
+    """
+    Transform for converting video frames as a list of tensors.
+    """
+    def __init__(self):
+        super().__init__()
+        self.alpha = 8
+        self._alpha=8
+        self._tau=16
+
+        self._stride_slow=self._tau
+        self._stride_slow=self._alpha
+        self._stride_fast = self._tau/self._alpha
+
+    def forward(self, frames: torch.Tensor):
+        slow_path =torch.index_select(frames_batch , 2 
+                                    , index = torch.linspace(torch.tensor(0),torch.tensor(frames_batch.size(2)-1),int(_PADDED_FRAMES//self._stride_slow)).long())
+        assert slow_path.size(2) == int(_PADDED_FRAMES//self._stride_slow)
+        
+        fast_path = torch.index_select(frames_batch, dim=2 , 
+                                    index= torch.linspace(torch.tensor(0),torch.tensor(frames_batch.size(2)-1) , int(_PADDED_FRAMES//self._stride_fast)).long())
+        
+        frames_batch = [slow_path , fast_path ]
+        return frames_batch
+
+
+def _get_transformed_input_pathways(tensor_in)->torch.tensor:
+    """
+    apply vdieo transforms and split to slow and fast pathways
+    """
+    num_frames = tensor_in.size(2)
+    mean = [0.45, 0.45, 0.45]
+    std = [0.225, 0.225, 0.225]
+    side_size = 200
+    
+    transform =  ApplyTransformToKey(
+        key="video",
+        transform=Compose(
+            [
+                
+                PackPathway()
+            ]
+        ))
+    
+    return transform(tensor_in)

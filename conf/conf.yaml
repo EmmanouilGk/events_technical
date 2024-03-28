@@ -8,6 +8,8 @@ defaults:
 mode: "train"
 dev: "cuda:0"
 use_weights: True
+model: "CNNLSTM"
+name: "cnnlstm_resnext101_01"
 
 SOLVER:
   BASE_LR: 0.1

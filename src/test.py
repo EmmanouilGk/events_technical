@@ -55,7 +55,7 @@ def test_batches(*args , **kwargs):
         for batch_idx , (frames , maneuver_type) in (pbar:=tqdm(enumerate(data_loader))): 
             pbar.set_description_str("Val Batch: {}".format(batch_idx))
             
-            frames = frames.to(dev) 
+            frames[0],frames[1]=frames[0].to(dev),frames[1].to(dev)
             maneuver_type=maneuver_type.type(torch.LongTensor).to(dev)
             
 

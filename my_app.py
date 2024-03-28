@@ -24,7 +24,7 @@ from intention_prediction.data.video_segment_dataset import (_get_semented_data_
                                                                construct_ds, compute_weights , compute_weights_binary_cls,prevention_dataset_test, union_prevention)
 
 from itertools import cycle
-
+import argparse
 log = logging.getLogger(__name__)
 
 
@@ -116,27 +116,30 @@ def my_app(cfg: DictConfig):
                                   pin_memory=True)
         
         
-
     elif not cfg.conf.use_weights:
         dataloader_train = DataLoader(dataset_train , batch_size=1, 
                                   collate_fn= collate_fn_padding , shuffle=True)
 
    
+    dataloader_val = DataLoader(dataset_val , batch_size=1 , collate_fn  = collate_fn_padding , shuffle=True)
+
+
+    dataloader_test = DataLoader(dataset_test , batch_size=1 , collate_fn = collate_fn_padding)
     
-    dataloader_val = DataLoader(dataset_val , batch_size=1 , collate_fn= collate_fn_padding , shuffle=True)
+    if cfg.conf.model == "CNNLSTM":
+        model = CNNLSTM(num_classes=2)
+    if cfg.conf.model == "slowfast":
+        model = create_slowfast(model_num_class =2 , slowfast_conv_channel_fusion_ratio =  2, slowfast_channel_reduction_ratio=8,
+                                head_pool_kernel_sizes=((7, 7, 7), (28, 7, 7)))
 
 
-    dataloader_test = DataLoader(dataset_test , batch_size=1 , collate_fn= collate_fn_padding)
-    
-    model = create_slowfast(model_num_class =2 )
 
-
-    # model = torch.hub.load('facebookresearch/pytorchvideo', 'slow_r50', pretrained=True )
+    # model = torch.hub.load('facebookresearch/pytorchvideo', 'slow_r50', pretrained=False,model_num_class=2)
     # print(model)
     # print(model.blocks)
     # model = create_slowfast(model_num_class =2 )
     # model = instantiate(cfg.conf.models)   #recheck 
-    model = create_slowfast()
+    # model = create_slowfast()
 
    
     print(model)
@@ -157,14 +160,18 @@ def my_app(cfg: DictConfig):
 
     # print(torch.hub.help('facebookresearch/pytorchvideo', 'x3d_s'))
 
-    optimizer = torch.optim.SGD(params  = model.parameters() , lr=0.01 , weight_decay = 0.0000001)
+    optimizer = torch.optim.SGD(params  = model.parameters() , lr=0.00001 , weight_decay = 0.0000001)
 
     epochs = cfg.conf.trainer.epochs
 
     # scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer= optimizer , gamma=0.9)
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer=optimizer,T_max=1.6)
+    # scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer=optimizer,T_max=1.6)
 
+    
+    scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, [8], gamma=0.1)
+                                         
     dev = torch.device("cuda:0")
+    model=model.to(dev)
 
     cfgd = get_cfg()
     # add_deeplab_config(cfg)
@@ -184,12 +191,12 @@ def my_app(cfg: DictConfig):
     detector = DefaultPredictor(cfgd)
 
     #==============================================================TRAIN-VAL-TEST================================================================
-    name="slowfast_torchvideo"
+    name=cfg.conf.name
     writer = SummaryWriter(log_dir= "/home/iccs/Desktop/isense/events/intention_prediction/logs2/run_{}-{}".format(now:=datetime.datetime.now(),name) )
     print(cfgv)
     if cfgv["conf"]["mode"]=="train":
             train(cfg , writer=writer,
-                dataloader_train = dataloader_train , 
+                dataloader_train = dataloader_train ,  
                 dataloader_val = dataloader_val,
                 dataset_train = dataset_train,
                 dataset_val = dataset_val,
@@ -199,7 +206,7 @@ def my_app(cfg: DictConfig):
                 scheduler = scheduler,
                 epochs = epochs,
                 dev= dev,
-                model_save_path="/home/iccs/Desktop/isense/events/intention_prediction/models/weights/train_pytorchvideo_slowfast.pt",
+                model_save_path="/home/iccs/Desktop/isense/events/intention_prediction/models/weights/train_pytorchvideo_slowfast_4.pt",
                 # load_saved_model ="/home/iccs/Desktop/isense/events/intention_prediction/models/weights/train_01_03_05_r53r41_r2_1_b.pt",
                 num_iterations_gr_accum = 5,
                 log_dict = {"lr":0.003},
@@ -214,7 +221,7 @@ def my_app(cfg: DictConfig):
         model = model , 
         epochs = epochs,
         dev= dev,
-        load_saved_model ="/home/iccs/Desktop/isense/events/intention_prediction/models/weights/train_pytorchvideo_slowfast.pt")
+        load_saved_model ="/home/iccs/Desktop/isense/events/intention_prediction/models/weights/train_pytorchvideo_slowfast_3.pt")
 
 @torch.no_grad()
 def construct_inference_video(
@@ -225,7 +232,7 @@ def construct_inference_video(
     cap_in =cv2.VideoCapture(srcp)
     fps = cap_in.get(cv2.CAP_PROP_FPS)
     H = cap_in.get(cv2.CAP_PROP_FRAME_HEIGHT)
-    W=cap_in.get(cv2.CAP_PROP_FRAME_WIDTH)
+    W = cap_in.get(cv2.CAP_PROP_FRAME_WIDTH)
     total_frames = cap_in.get(cv2.CAP_PROP_MAX_FRAMES)
 
     cap_in.set(cv2.CAP_PROP_POS_FRAMES , total_frames*0.9)
@@ -247,6 +254,8 @@ def construct_inference_video(
 
         cap.write(img)
 
+# def inference_transform(frame):
+#     _transform =
 
 if __name__=="__main__":
     """
@@ -255,4 +264,8 @@ if __name__=="__main__":
     if not os.path.isfile("/home/iccs/Desktop/isense/events/intention_prediction/processed_data/detection_camera1/lane_changes_preprocessed.txt"):
         _preprocess_label_file()
     
+    argparser = argparse.ArgumentParser()
+    # argparser.add_argument("--exp",default=True)
+    
+
     my_app()
