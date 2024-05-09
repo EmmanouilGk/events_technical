@@ -6,9 +6,8 @@ from omegaconf import DictConfig
 import datetime
 from pytorchvideo.models.slowfast import create_slowfast
 from pytorchvideo.models.head import create_res_basic_head
-from detectron2.engine import DefaultPredictor
-from detectron2.config import get_cfg
 from pytorchvideo.models.slowfast import create_slowfast
+from torch.utils.tensorboard import SummaryWriter
 import os
 from os.path import join
 from torch.utils.data import DataLoader
@@ -20,11 +19,15 @@ from intention_prediction.src.train_epochs import *
 from intention_prediction.src.test import *
 from intention_prediction.models.load_resnet import *
 from intention_prediction.data.data_loader_utils import collate_fn_padding
-from intention_prediction.data.video_segment_dataset import (_get_semented_data_paths, custom_concat_dataset, prevention_dataset_val , prevention_dataset_train, 
-                                                               construct_ds, compute_weights , compute_weights_binary_cls,prevention_dataset_test, union_prevention)
+from intention_prediction.data.video_segment_dataset import (_get_semented_data_paths, custom_concat_dataset, 
+                                                             prevention_dataset_val , prevention_dataset_train, 
+                                                             construct_ds, compute_weights , compute_weights_binary_cls,
+                                                             prevention_dataset_test, union_prevention)
 
 from itertools import cycle
 import argparse
+
+from intention_prediction.utils.util import get_perception_segmentation
 log = logging.getLogger(__name__)
 
 
@@ -35,7 +38,7 @@ def my_app(cfg: DictConfig):
     cfgv = OmegaConf.to_container(cfg)
     
     _root_dir = "/home/iccs/Desktop/isense/events/intention_prediction/processed_data/"
-    
+    writer= SummaryWriter(log_dir= "/home/iccs/Desktop/isense/events/intention_prediction/logging/runs")
     # dataset_kwargs = _get_data_conf_(recording = , drive = )
     dataset_train =  ConcatDataset([
                                     # prevention_dataset_train(root= join(_root_dir , "new_data/recording_05/drive_03/segmented_frames"),
@@ -53,10 +56,10 @@ def my_app(cfg: DictConfig):
     
 
                                     prevention_dataset_train(root= join(_root_dir , "new_data/recording_02/drive_01/segmented_frames"),
-                                             label_root=join(_root_dir , "new_data/recording_02/drive_01/processed_data/detection_camera1/lane_changes.txt"),
-                                             gt_root=join(_root_dir , "new_data/recording_02/drive_01/processed_data/detection_camera1/labels.txt"),
-                                             detection_root = join(_root_dir , "new_data/recording_02/drive_01/processed_data/detection_camera1/detections_tracked.txt")
-                                             ,desc = "Rec_02_01",split=0.8),
+                                                             label_root=join(_root_dir , "new_data/recording_02/drive_01/processed_data/detection_camera1/lane_changes.txt"),
+                                                             gt_root=join(_root_dir , "new_data/recording_02/drive_01/processed_data/detection_camera1/labels.txt"),
+                                                             detection_root = join(_root_dir , "new_data/recording_02/drive_01/processed_data/detection_camera1/detections_tracked.txt")
+                                                             ,desc = "Rec_02_01",split=0.8 ,writer=writer),
     
                                     # prevention_dataset_train(root= join(_root_dir , "new_data/recording_05/drive_03/segmented_frames"),
                                     #          label_root=join(_root_dir , "new_data/recording_05/drive_03/processed_data/detection_camera1/lane_changes.txt"),
@@ -111,18 +114,15 @@ def my_app(cfg: DictConfig):
         else: weights , class_w, weights_dict = compute_weights_binary_cls(ds = dataset_train,custom_scaling=10 , save_path =save_path )
         print("Final dataset size is {}".format(len(dataset_train)))
         dataloader_train = DataLoader(dataset_train , batch_size=1 , 
-                                  collate_fn= collate_fn_padding , shuffle=False , 
-                                  sampler =torch.utils.data.WeightedRandomSampler(weights=weights, num_samples = len(dataset_train),replacement=True),
-                                  pin_memory=True)
-        
-        
+                                        collate_fn= collate_fn_padding , shuffle=False , 
+                                        sampler = torch.utils.data.WeightedRandomSampler(weights=weights, num_samples = len(dataset_train),replacement=True),
+                                        pin_memory=True)
+             
     elif not cfg.conf.use_weights:
         dataloader_train = DataLoader(dataset_train , batch_size=1, 
-                                  collate_fn= collate_fn_padding , shuffle=True)
+                                      collate_fn= collate_fn_padding , shuffle=True)
 
-   
     dataloader_val = DataLoader(dataset_val , batch_size=1 , collate_fn  = collate_fn_padding , shuffle=True)
-
 
     dataloader_test = DataLoader(dataset_test , batch_size=1 , collate_fn = collate_fn_padding)
     
@@ -173,22 +173,8 @@ def my_app(cfg: DictConfig):
     dev = torch.device("cuda:0")
     model=model.to(dev)
 
-    cfgd = get_cfg()
-    # add_deeplab_config(cfg)
-    # add_maskformer2_config(cfg)
 
-    cfgd_str= "/home/iccs/Desktop/isense/hidrive/working/detectron2/configs/COCO-InstanceSegmentation/mask_rcnn_R_50_C4_1x.yaml"
-        
-    cfgd_model_path = "https://dl.fbaipublicfiles.com/detectron2/COCO-InstanceSegmentation/mask_rcnn_R_50_C4_1x/137259246/model_final_9243eb.pkl"
-    cfgd.merge_from_file(cfgd_str)
-    
-    cfgd.MODEL.WEIGHTS =cfgd_model_path
-    
-    # cfg.MODEL.MASK_FORMER.TEST.SEMANTIC_ON = True
-    
-    cfgd.MODEL.DEVICE="cuda"
-
-    detector = DefaultPredictor(cfgd)
+    detector = get_perception_segmentation()
 
     #==============================================================TRAIN-VAL-TEST================================================================
     name=cfg.conf.name
@@ -213,15 +199,16 @@ def my_app(cfg: DictConfig):
                 detector = detector
                 )
         
-    
-    test(cfg , 
-        writer=writer,
-        dataloader_test= dataloader_test,
-        # weights = weights ,
-        model = model , 
-        epochs = epochs,
-        dev= dev,
-        load_saved_model ="/home/iccs/Desktop/isense/events/intention_prediction/models/weights/train_pytorchvideo_slowfast_3.pt")
+    elif cfgv["conf"]["mode"]=="test":
+            test(cfg , 
+                 writer=writer,
+                 dataloader_test = dataloader_test,
+                 # weights = weights ,
+                 model = model , 
+                 epochs = epochs,
+                 dev= dev,
+                 load_saved_model ="/home/iccs/Desktop/isense/events/intention_prediction/models/weights/train_pytorchvideo_slowfast_3.pt",
+                 weights = "/home/iccs/Desktop/isense/events/intention_prediction/models/weights/train_pytorchvideo_slowfast_4.pt")
 
 @torch.no_grad()
 def construct_inference_video(
